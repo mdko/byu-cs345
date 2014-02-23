@@ -1,0 +1,21 @@
+New Task:
+-------------------------------------------------------------------------------
+The new task I created is called "mynewtask(int argc, char* argv[])", which is
+implemeneted in src/my_tasks.c on lines 150-161. It is called like this:
+	
+	mynewtask <taskId> <priority>
+
+where <taskId> is an integer representing the task ID of some task the user 
+wishes to view information on (the user will see the associated task's 
+name, state, and priority).
+
+If <priority>, a passed in integer, is greater than 0, then the priority of 
+the task associated with <taskId> is updated to equal <priority>. 
+Else, the task's priority remains unchanged.
+
+The name of the system call used by mynewtask(...) is 
+myNewCall(...), U_myNewCall(), and _myNewCall(...) throughout the various files.
+
+Stack Evolution:
+-------------------------------------------------------------------------------
+The illustrations are located in /evo/illustrations.pdf.

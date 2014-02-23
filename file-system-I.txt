@@ -1,0 +1,30 @@
+My testing strategy and framework involved first, continually using "type
+<file name>" on make.txt and the other files in the directories. Via this
+first method, I was able to discover many issues with me not accessing and
+iterating over the buffers correctly during read, not being able to properly
+parse/concatenate a file in close so I could find its file descriptor and
+update the directory accordingly, and other errors. During this process, I
+would use the reference kernel implementation to compare mine against what
+should be happening with each command.
+
+By opening another file after I believed my implementation to be complete, I
+was able to realize that I hadn't been clearing the entry-to-be-closed's
+attributes from its spot open file table once they were being closed. I then
+proceeded to navigate the directories and open h2o.c, byu/anxiety.txt,
+"byu/invari~1.txt" (this allowed me to use the completion part of the code
+that was given but also allowed me to ensure that file names were being parsed
+correctly in my close section, since this file name was longer). I then
+proceeded to also open byu\logic.txt, puzzles.txt, top20.txt, and zebra.txt.
+
+I also tested the error handling abilities the best I could. I tried to "type"
+a file that didn't exist, and the same error in my implementation and the
+reference implementation would occur (file not defined).
+
+Finally, I used the "testfat 1" command since write and delete are for part 2,
+and that passes.
+
+I noticed a discrepancy, which wasn't an error, but just differences
+between the implementations. My implementation of open finds the last file
+descriptor slot that is available in the open file table, while the reference
+kernel gets the first. Since I was basing read off of the powerpoint given in
+class, I see no problem with this, and it works the same.

@@ -1,0 +1,18 @@
+#ifndef SCHEDULER_H
+#define SCHEDULER_H
+
+#include "priority_queue.h"
+
+#define NO_TASK -1
+
+void printvrts(int);
+void printlvrt(int);
+void initScheduler();
+int scheduler();
+void reschedule(int);
+void deschedule(int task);
+void clearScheduler();
+//QueueList* getFreeList();
+
+
+#endif

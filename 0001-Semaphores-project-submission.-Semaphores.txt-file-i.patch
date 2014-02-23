@@ -1,0 +1,147 @@
+From c4fbb6e7fec4274ec6d218c9cc105e416c372f89 Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Fri, 1 Mar 2013 17:24:04 -0700
+Subject: [PATCH] Semaphores project submission. Semaphores.txt file is in
+ main directory. I think the commit id of the current HEAD
+ for origin/master is
+ 6d82e5999d586309c9308c897cbe02c11c70d099
+
+---
+ Makefile         |    6 ++---
+ semaphores.txt   |   10 +++++++++
+ src/semaphores.c |   64 +++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 76 insertions(+), 4 deletions(-)
+ create mode 100644 semaphores.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..1498574 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -92,7 +92,7 @@ OBJS	=			obj/kernel.o							\
+ 					obj/commands.o							\
+ 				 	obj-ref/$(ARCH)/shell.o					\
+ 					obj-ref/$(ARCH)/delta_clock.o			\
+-					obj-ref/$(ARCH)/semaphores.o			\
++					obj/semaphores.o						\
+ 					obj-ref/$(ARCH)/scheduler.o				\
+ 					obj-ref/$(ARCH)/queue_list.o			\
+ 					obj-ref/$(ARCH)/jurassic_park.o			\
+diff --git a/semaphores.txt b/semaphores.txt
+new file mode 100644
+index 0000000..4c61ea9
+--- /dev/null
++++ b/semaphores.txt
+@@ -0,0 +1,10 @@
++To test my semaphores project, I used both jp 3 & and testsems, as specified
++on the suggestions for testing on the website. Since the kernel itself
++compiled correctly with my implementation of semaphores.c, I was able to run
++testsems in conjunction with s1 and s2, and those commands immediately
++produced output as expected. My jp 3 & command initially didn't work correctly
++because I wasn't clearing the event field in the tcb appropriately, producing
++an error where the queue list was trying to access a tid of -1, so there were
++immediate benefits to using jp to test it all. After fixing this part of my
++implementation, jp started and finished correctly, so I am pretty confident my
++semaphores work.
+diff --git a/src/semaphores.c b/src/semaphores.c
+index f7fdb0e..c4e9319 100644
+--- a/src/semaphores.c
++++ b/src/semaphores.c
+@@ -224,6 +224,24 @@ Semaphore* _getSemaphore(int semId)
+  */
+ void _semSignal(int semId)
+ {
++	Semaphore* semaphore = _getSemaphore(semId);
++	//try to dequeue from the queue
++	tid_t front_task_tid = dequeue(semaphore->blockedList);
++	TCB* tcb = getTCB();
++
++	if (front_task_tid == NO_TASK) { //if no one is waiting on the signal
++		//update semaphores state saying there are resources available
++		if ((semaphore->type) == BINARY)
++			(semaphore->state) = 1;
++		else
++			(semaphore->state)++;
++	}
++	else {	//else there was at least one task waiting on it, pull them off queue
++		tcb[front_task_tid].state = S_READY;
++		tcb[front_task_tid].event = 0; //it is not waiting on sem anymore/can run again
++		reschedule(front_task_tid);
++	}
++
+ }
+ 
+ /**
+@@ -241,6 +259,38 @@ void _semSignal(int semId)
+  */
+ int _semWait(int semId)
+ {
++	Semaphore* semaphore = _getSemaphore(semId);
++	TCB* tcb = getTCB();
++
++	if (semaphore == NULL)
++		return SEMNOTFOUND;
++
++	if ((semaphore->state) > 0)	{ //there are free resources ("signaled")
++		//update semaphore state (ie take the "key"/resource)
++		if ((semaphore->type) == BINARY)
++			(semaphore->state) = 0;
++		else
++			(semaphore->state)--;
++		return WAITNOTBLOCKED;
++	}
++	else { //no free resources, so block the task
++		//TODO check this next part
++		if ((semaphore->type) == COUNTING)
++			(semaphore->state)--; //only counting sems can be less than zero
++		
++		//block task by updating tcb
++		tid_t curr_task_id = _gettid();
++		tcb[curr_task_id].state = S_BLOCKED;
++		tcb[curr_task_id].event = semaphore;
++
++		//deschedule it so scheduler doesn't make it do anything (ie block it)
++		deschedule(curr_task_id);
++
++		//add task to block list
++		enqueue(semaphore->blockedList, curr_task_id);
++
++		return WAITBLOCKED;
++	}
+ }
+ 
+ /**
+@@ -255,7 +305,19 @@ int _semWait(int semId)
+  */
+ int _semTryLock(int semId)
+ {
+-	return 1;
++	Semaphore* semaphore = _getSemaphore(semId);
++
++	if ((semaphore->state) > 0) { //there are free resources ("signaled")
++		//so take resource and show you took it by lowering its state (ie less
++		//resources available now)
++		if ((semaphore->type) == BINARY)
++			(semaphore->state) = 0;
++		else
++			(semaphore->state)--;
++		return 1;
++	}
++	else
++		return 0;
+ }
+ 
+ /**
+-- 
+1.7.10.4
+

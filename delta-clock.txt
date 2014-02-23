@@ -1,0 +1,52 @@
+My implementation:
+I used a queue data structure to store and access events that need to be
+signaled after arbitrary amounts of time as determined by the caller who
+passes in events. In the _insertDeltaClock method, events are enqueued in a
+particular way-- depending on the time that that event needs to be signalled
+at, it is given a particular place in the queue, possibly passing other items
+in the queue on its way toward the front. For example, if the queue contains
+events
+
+ A (time of 4)
+ C (time of 2 after A)
+ D (time of 0 after C, ie simultaneously)
+ B (time of 8 after C & D)
+ 
+  adding event E with a time of 5 would put it right before A. The resultant
+  queue is
+
+ A (time of 4)
+ E (time of 1 after A)
+ C (time of 1 after E)
+ D (time of 0 after C)
+ B (time of 8 after C & D)
+
+Items with time of 0 are not queued, and instead signalled immediately.
+
+Deleting items from the queue is a similar process, where the time of the
+event succeeding it in order will be increased according to what the old event
+had (since it no longer represents time being taken up).
+
+When the _tick function is called, I determine the amount of time that has
+passed since the last call and subtract that time from the event at the front
+of the queue, until it reaches 0 or there is no longer time to subtract
+(whichever comes first). If the time of the event is <= 0, it is signaled, and
+I proceed doing the same thing for the next front of the list if there is
+still time passed to subtract.
+
+Testing my implementation:
+To test my delta_clock, I first made a test file (testlist.c) so I could just
+test the functionality of inserting and deleting immediately without having to
+rely on system calls or ticks. To test the ticking function, I first relied on
+various printf's so I could determine the state of the queue each time _tick
+was called, and I also called _list on the delta_clock to see what events I
+should be expecting. This helped me realize that my periodic events weren't
+working correctly, something that I couldn't test with just my testlist.c
+file. I relied on the jp N & and testdc functions in the end once I had the
+entire thing working.
+
+Limitations:
+The only limitation I can think of is that the way clock drift is handled, I
+am not being exact. Setting oldClkTime sets it to approximate 1/10th marks
+instead of exactly where it was at the end of the function.
+

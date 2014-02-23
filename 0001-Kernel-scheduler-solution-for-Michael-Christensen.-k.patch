@@ -1,0 +1,451 @@
+From e6f130b58484394daf0be898cbb329859992273d Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Wed, 13 Mar 2013 18:27:30 -0600
+Subject: [PATCH] Kernel scheduler solution for Michael Christensen.
+ kernel_scheduler.txt is in the main kernel directory.
+
+---
+ Makefile             |  12 ++---
+ inc/scheduler.h      |   6 ++-
+ kernel_scheduler.txt |  45 ++++++++++++++++++
+ src/my_tasks.c       | 128 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ src/scheduler.c      | 131 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 313 insertions(+), 9 deletions(-)
+ create mode 100644 kernel_scheduler.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..0956d7d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -93,8 +93,8 @@ OBJS	=			obj/kernel.o							\
+ 				 	obj-ref/$(ARCH)/shell.o					\
+ 					obj-ref/$(ARCH)/delta_clock.o			\
+ 					obj-ref/$(ARCH)/semaphores.o			\
+-					obj-ref/$(ARCH)/scheduler.o				\
+-					obj-ref/$(ARCH)/queue_list.o			\
++					obj/scheduler.o							\
++					obj/queue_list.o						\
+ 					obj-ref/$(ARCH)/jurassic_park.o			\
+ 					obj-ref/$(ARCH)/virtual_memory.o		\
+ 					obj-ref/$(ARCH)/fat.o					\
+@@ -117,8 +117,8 @@ SWAPOBJS	=		obj/kernel-swap.o						\
+ 					obj-ref/$(ARCH)/shell-swap.o			\
+ 					obj-ref/$(ARCH)/delta_clock-swap.o		\
+ 					obj-ref/$(ARCH)/semaphores-swap.o		\
+-					obj-ref/$(ARCH)/scheduler-swap.o		\
+-					obj-ref/$(ARCH)/queue_list-swap.o		\
++					obj/scheduler-swap.o					\
++					obj/queue_list-swap.o					\
+ 					obj-ref/$(ARCH)/jurassic_park-swap.o	\
+ 					obj-ref/$(ARCH)/virtual_memory-swap.o	\
+ 					obj-ref/$(ARCH)/fat-swap.o				\
+diff --git a/inc/scheduler.h b/inc/scheduler.h
+index e1742b0..8150eca 100644
+--- a/inc/scheduler.h
++++ b/inc/scheduler.h
+@@ -1,16 +1,18 @@
+ #ifndef SCHEDULER_H
+ #define SCHEDULER_H
+ 
+-#include "queue_list.h"
++#include "priority_queue.h"
+ 
+ #define NO_TASK -1
+ 
++void printvrts(int);
++void printlvrt(int);
+ void initScheduler();
+ int scheduler();
+ void reschedule(int);
+ void deschedule(int task);
+ void clearScheduler();
+-QueueList* getFreeList();
++//QueueList* getFreeList();
+ 
+ 
+ #endif
+diff --git a/kernel_scheduler.txt b/kernel_scheduler.txt
+new file mode 100644
+index 0000000..625d896
+--- /dev/null
++++ b/kernel_scheduler.txt
+@@ -0,0 +1,45 @@
++I keep track of the ready list via an array of booleans, with each entry
++designating the state of one task, 1 = ready, 0 = not ready. To find the
++lowest virtual runtime task, I go through that array once, accessing my
++virtual_runtime array to find the lowest. This is O(n) procedure. When
++rescheduling a new task, my method of finding the lowest and highest virtual
++runtimes (which is used to determine a good average virtual runtime for the
++newly scheduled task) is constant, since I store those variables globally and
++only update them when a new task is entered in.
++
++To begin testing, I included the option to output many print statements that
++would indicate where in the scheduler I currently was, so I could determine
++whether the ready queue (an array of booleans) was being correctly
++implemented. I also was helped greatly by outputting the results of my clock()
++calls, which ended up not working as expected possibly due to rounding of my
++linux system. Instead I used clock_gettime(), which solved that problem.
++
++I then tested the kernel as a whole using jp 3 &, which eventually terminated
++correctly. I then tested with the rest of the common commands we've used, like myint,
++myspin, and mysplit and verified they worked and terminated; specifically, I
++made sure that when I ran multiple tasks at once, that the other ones started
++before weren't starved. For example, if I ran myint 5 & and then myint 7 &
++right afterwards, the second task shouldn't take 7 seconds after the first to
++end, because they were switching use of the processor and being prioritized
++accordingly based on the virtual runtime each had accumulated.
++
++Then I used my testing procedure, testScheduler(), to verify that my scheduler
++was working properly via my own tests. Specifically, I created several tasks
++of myspin that had varying priorities and which all ran for 60 seconds. After
++created all the tasks and allowing them to run, I print out, each second, the
++list of all the tasks running and their respective tid's and virtual run-time,
++as well as which task currently has the lowest virtual runtime. To run the
++testScheduler, just use "tsc". I noticed that when I included a HIGH_PRIORITY
++task, it's virtual runtime accumulated more slowly than the others, which was
++expected. However, to see the tasks take turns in the spot of lowest virtual
++runtime, I removed the HIGH_PRIORITY task from my list of created tasks. In my
++test, there are 2 HIGH, 2 MEDIUM, and 1 LOW priority tasks, and when you run
++the test, you can see that the 2 HIGH_PRIORITY tasks switch off between who
++has the lowest vrt. Also the MED and LOW_PRIORITY tasks accumulate faster than
++the others.
++
++Known limitations:
++However, I noticed that when running jp, every few seconds the program would seem to
++freeze up, only to resume again by quickly updating everything it hadn't in
++those seconds.
++
+diff --git a/src/my_tasks.c b/src/my_tasks.c
+index 032b303..461603b 100644
+--- a/src/my_tasks.c
++++ b/src/my_tasks.c
+@@ -94,6 +94,10 @@ int mysplit(int argc, char* argv[])
+ 		return -1;
+     }
+ 
++	//int i;
++	//for (i = 0; i < argc; i++)
++	//	printf("%s\n", argv[i]);
++
+ 	NewTask mySplitTask;
+ 	mySplitTask.name = "myplit";
+ 	mySplitTask.task = myspin;
+@@ -149,5 +153,127 @@ int mystop(int argc, char* argv[]) {
+ 
+ 
+ int testScheduler(int argc, char* argv[]) {
+-    return 0;
++	tid_t tids[15];
++	int s = createSemaphore("timing", BINARY, 0);
++
++	NewTask myTask0;
++	char* arg0[2];
++	char name0[32];
++	char args0[32];
++	arg0[0] = name0;
++	arg0[1] = args0;
++	sprintf(arg0[0],"mysplit");
++	sprintf(arg0[1],"60");
++	myTask0.name = "mytask0";
++	myTask0.task = myspin;
++	myTask0.priority = MED_PRIORITY;
++	myTask0.argc = 2;
++	myTask0.argv = arg0;
++	myTask0.parentHandlers = FALSE; 
++	myTask0.tgidNew = FALSE;
++	tids[0] = createTask(&myTask0);
++	
++	/*insertDeltaClock(10,s,1);
++	int i;
++	// print the list of vrts every 1 second
++	for (i = 0; i < 5; i++) {
++		semWait(s);
++		printvrts(5);
++		printf("\n");
++	}*/
++
++	NewTask myTask1;
++	char* arg1[2];
++	char name1[32];
++	char args1[32];
++	arg1[0] = name1;
++	arg1[1] = args1;
++	sprintf(arg1[0], "mysplit");
++	sprintf(arg1[1], "60");
++	myTask1.name = "mytask1";
++	myTask1.task = myspin;
++	myTask1.priority = HIGH_PRIORITY;
++	myTask1.argc = 2;
++	myTask1.argv = arg1;
++	myTask1.parentHandlers = FALSE; 
++	myTask1.tgidNew = FALSE;
++	tids[1] = createTask(&myTask1);
++	
++	/*insertDeltaClock(10,s,1);
++	// print the list of vrts every 1 second
++	int i;
++	for (i = 0; i < 20; i++) {
++		semWait(s);
++		printvrts(5);
++		printf("\n");
++	}*/
++	
++	NewTask myTask2;
++	char* arg2[2];
++	char name2[32];
++	char args2[32];
++	arg2[0] = name2;
++	arg2[1] = args2;
++	sprintf(arg2[0], "mysplit");
++	sprintf(arg2[1], "60");
++	myTask2.name = "mytask2";
++	myTask2.task = myspin;
++	myTask2.priority = LOW_PRIORITY;
++	myTask2.argc = 2;
++	myTask2.argv = arg2;
++	myTask2.parentHandlers = FALSE; 
++	myTask2.tgidNew = FALSE;
++	tids[2] = createTask(&myTask2);
++	
++	NewTask myTask3;
++	char* arg3[2];
++	char name3[32];
++	char args3[32];
++	arg3[0] = name3;
++	arg3[1] = args3;
++	sprintf(arg3[0], "mysplit");
++	sprintf(arg3[1], "60");
++	myTask3.name = "mytask2";
++	myTask3.task = myspin;
++	myTask3.priority = HIGH_PRIORITY;
++	myTask3.argc = 2;
++	myTask3.argv = arg3;
++	myTask3.parentHandlers = FALSE; 
++	myTask3.tgidNew = FALSE;
++	tids[3] = createTask(&myTask3);
++
++	NewTask myTask4;
++	char* arg4[2];
++	char name4[32];
++	char args4[32];
++	arg4[0] = name4;
++	arg4[1] = args4;
++	sprintf(arg4[0],"mysplit");
++	sprintf(arg4[1],"60");
++	myTask4.name = "mytask4";
++	myTask4.task = myspin;
++	myTask4.priority = MED_PRIORITY;//change to VERY_HIGH_PRIORITY to see its virtual runtime accumulate more slowly
++	myTask4.argc = 2;
++	myTask4.argv = arg4;
++	myTask4.parentHandlers = FALSE; 
++	myTask4.tgidNew = FALSE;
++	tids[4] = createTask(&myTask4);
++	
++
++
++	insertDeltaClock(10,s,1);
++	// print the list of vrts every 1 second
++	int i;
++	for (i = 0; i < 65; i++) {
++		semWait(s);
++		printlvrt(7); //prints the lowest vrt task (top of queue currently)
++		printvrts(7);
++		printf("\n");
++	}
++	deleteClockEvent(s);
++	deleteSemaphore(s);
++
++
++	return 0;
++
+ }
+diff --git a/src/scheduler.c b/src/scheduler.c
+index cb5e884..e3379a3 100644
+--- a/src/scheduler.c
++++ b/src/scheduler.c
+@@ -16,11 +16,47 @@
+ #include <setjmp.h>
+ #include <assert.h>
+ #include <stdlib.h>
++#include <time.h>
+ #include "scheduler.h"
+ #include "kernel.h"
+ 
++#define DEBUG_S 0
++#define RATE_BASE MED_PRIORITY
++
+ extern Node tasks[MAX_TASKS];
++int virtual_runtime[MAX_TASKS];
++bool ready_queue[MAX_TASKS];
++struct timespec start_time, end_time;
++int lowest_vrt;
++int highest_vrt;
++
++void printlvrt(int numtasks) {
++	TCB* tcb = getTCB();
++	int lvr = virtual_runtime[0];
++	int lvr_tid = 0;
++	int i;
++	for (i = 0; i < numtasks; i++) {
++		if (virtual_runtime[i] < lvr && virtual_runtime[i] > 0) {
++			lvr = virtual_runtime[i];
++			lvr_tid = i;
++		}
++	}
++	printf("Lowest virtual runtime is task %d at %d with priority %d.\n", 
++			lvr_tid, 
++			lvr,
++			tcb[lvr_tid].priority);
++}
+ 
++void printvrts(int taskNums) {
++	int i;
++	TCB* tcb = getTCB();
++	for (i = 0; i < taskNums; i++) {
++		printf("Virtual runtime for task %d: %d with priority %d.\n",
++			   	i,
++			   	virtual_runtime[i],
++				tcb[i].priority);
++	}
++}
+ 
+ /**
+  * initScheduler - do anything the scheduler needs to before kernel starts
+@@ -29,7 +65,11 @@ void initScheduler() {
+     int i;
+     for (i = 0; i < MAX_TASKS; i++) {
+         tasks[i].tid = NO_TASK;
++		virtual_runtime[i] = 0;
++		ready_queue[i] = 0;
+     }
++	lowest_vrt = 0;
++	highest_vrt = 0;
+ }
+ 
+ /**
+@@ -41,6 +81,30 @@ void initScheduler() {
+  * The selected task is removed from the scheduler until it is rescheduled.
+  */
+ int scheduler() {
++	if (DEBUG_S) printf("Scheduler()\n");
++
++	int lvr = -1;
++	int lvr_tid = -1;
++	
++	int i;
++	for (i = 0; i < MAX_TASKS; i++) {
++		//if task is in the ready queue and it's less than my current lowest vr
++		if (ready_queue[i] == 1) {
++		   if (lvr == -1 || (virtual_runtime[i] < lvr)) {
++				lvr = virtual_runtime[i];
++				lvr_tid = i;
++		   }
++			if (DEBUG_S) printf("in loop, lvr_tid: %d, lvr: %d\n", lvr_tid, lvr);
++		}
++	}
++	if (lvr_tid == -1)
++		return NO_TASK;
++
++	ready_queue[lvr_tid] = 0; //take out of ready queue
++
++	if (DEBUG_S) printf("Sch: lowest vrt tid: %d, vrt: %d\n", lvr_tid, lvr);
++	clock_gettime(CLOCK_REALTIME, &start_time);
++	return lvr_tid;
+ }
+ 
+ /**
+@@ -50,6 +114,58 @@ int scheduler() {
+  * This function causes a task to be rescheduled.
+  */
+ void reschedule(int task) {
++	if (DEBUG_S) printf("Reschedule()\n");
++	ready_queue[task] = 1;
++	TCB* tcb = getTCB();
++	
++	if (DEBUG_S) printf("task%d\n", task);
++	if (DEBUG_S) printf("vrt%d\n",virtual_runtime[task]);
++	
++	if (tcb[task].state == S_EXIT) {
++		if (DEBUG_S) printf("Res: task %d's state is exited\n", task);
++		virtual_runtime[task] = 0;
++		return;
++	}
++	if (DEBUG_S) printf("Res: old clock: %d, new clock: %d\n", 
++					start_time.tv_nsec, 
++					end_time.tv_nsec);
++	if (DEBUG_S) printf("Res: new vrt of task: %d\n", virtual_runtime[task]);
++
++	if (tcb[task].state == S_RUNNING ||
++			tcb[task].state == S_READY) {
++		//if we're rescheduling the current task,
++		//update the time it's been on the processor
++		if (DEBUG_S) printf("Res: task %d's state is running or ready\n", task);
++		
++		if (task == _gettid()) {
++			
++			clock_gettime(CLOCK_REALTIME, &end_time);
++			virtual_runtime[task] += ((end_time.tv_nsec - start_time.tv_nsec)
++				   						* RATE_BASE) / tcb[task].priority;
++			
++			if (virtual_runtime[task] <= lowest_vrt)
++				lowest_vrt = virtual_runtime[task];
++			
++			if (highest_vrt <= virtual_runtime[task]) 
++				highest_vrt = virtual_runtime[task];
++			
++			if (DEBUG_S) {
++				printf("Res: task %d is curr task\n", task);
++				printf("Res: old clock: %d, new clock: %d\n", 
++							start_time.tv_nsec, 
++							end_time.tv_nsec);
++				printf("Res: new vrt of task: %d\n", virtual_runtime[task]);
++			   	printf("lowest vrt is %d\n", lowest_vrt);
++				printf("highest vrt is %d\n", highest_vrt);
++			}
++		}
++		//else if brand new task, not current one
++		else if (virtual_runtime[task] == 0) {
++				virtual_runtime[task] = (highest_vrt - lowest_vrt)/ 2;
++			if (DEBUG_S) printf("Res: vrt of task %d: %d\n", task, virtual_runtime[task]);
++			//return;
++		}
++	}
+     return;
+ }
+ 
+@@ -60,6 +176,21 @@ void reschedule(int task) {
+  * This function causes a task to be removed from the ready queue.
+  */
+ void deschedule(int task) {
++	if (DEBUG_S) printf("Deschedule()\n");
++	//removeNode(task_queue, task);
++	ready_queue[task] = 0;
++	TCB* tcb = getTCB();
++	if (tcb[task].state == S_BLOCKED) {
++		if (DEBUG_S) printf("Des: Task %d is blocked\n", task);
++		clock_gettime(CLOCK_REALTIME, &end_time);
++		virtual_runtime[task] += ((end_time.tv_nsec - start_time.tv_nsec) 
++							* RATE_BASE) / tcb[task].priority;
++		if (DEBUG_S) printf("Des: vrt of task %d: %d\n", task, virtual_runtime[task]);
++	}
++	else {
++		virtual_runtime[task] = 0.0;
++		if (DEBUG_S) printf("Des: vrt of task %d is cleared\n", task);
++	}
+ }
+ 
+ void clearScheduler() {
+-- 
+1.8.1.2
+

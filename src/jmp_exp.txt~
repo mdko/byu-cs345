@@ -1,0 +1,135 @@
+setjmp() occurences:
+0. kernel.c, line 127: int resetCode = setjmp(reset_context);
+	This is the return site for any subsequent longjmp that results in the
+	system reseting. It saves the context of the program (register context,
+	SP, and PC) so the program can go back to main for a restart.
+
+1. kernel.c, line 317: kernelReturnValue = setjmp(k_context);
+	This sets the return site for any longjmps from within task swaps while
+	the current task is running. If there's any error, it will return to this
+	point, restore the context, and the return value will be able to
+	determine what do based on this return value.
+
+2. kernel.c, line 770: result = setjmp(k_context);
+	Sets the return site for a longjmp that would need the current context of
+	the kernel when it hasn't started. This is would be returned to from
+	within initTask() if the kernel hasn't started and it's the first time
+	through the curTask, where it would then be rescheduled and us returned to
+	this context in the kernel so that the result would be non-zero.
+
+3. kernel.c, line 804: if(setjmp(tcb[curTask].context) == 0); {
+	Sets the return point for any errors that the reschedule(int task) method
+	in scheduler.c might need to longjmp to to restore the context of the task
+	in initTask() and pursue a different course.
+
+4. kernel.c, line 814: if(setjmp(tcb[curTask].kill_context)) {
+	The place to return to when the longjmp set later returns with the task
+	having a kill_context (in signals.c), the kill signal having been sent.
+
+5. trap.c, line 32: context_value = setjmp(*((jmp_buf*)formals->params[0]));
+	The context value saved here saves what the trap needs to go into the
+	kernel and perform the function (ie the trap_struct on the stack), so the
+	kernel can return to this point if necessary. It seems that the 0th entry
+	in the array of params in the formals trap_struct is what is used to
+	contain the context_value of any longjmps back to it.
+
+longjmp() occurences:
+0. kernel.c, line 194: longjmp(reset_context, POWER_DOWN_QUIT);
+	This will jump back to the context saved in line 127 with a reset code < 0
+	so that the switch statement following line 127 will be able to shut down
+	the os appropriately, according to the reset_context that is set to
+	POWER_DOWN_QUIT.
+
+1. kernel.c, line 382: longjmp(tcb[curTask].context,TRAP_NORMAL);
+	This jumps to the context of the current task after it is discovered that
+	is running and therefore shouldn't be in superMode after returning from a
+	trap.
+
+2. kernel.c, line 486: longjmp(*((jmp_buf*)system_call_params->params[0]),TRAP_NORMAL);
+	If the system is already handling a signal, it will restore the context of
+	task and tell its system_call_params that they're TRAP_NORMAL, and then
+	the program will resume execution to whoever called
+	_setTrapParamsContext(...)
+
+3. kernel.c, line 409: longjmp(k_context,KERNEL_CHECK_SIGNALS);
+	Similar to the above, except that the system wasn't already handling a
+	signal, and so we jump back to where the setjmp occured, saying that we
+	need to check for signals with KERNEL_CHECK_SIGNALS before we do the
+	system call.
+
+4. kernel.c, line 457: longjmp(reset_context, POWER_DOWN_ERROR);
+	Returns to the set jump that was saved by reset_context, which is set on
+	line 127 in main, so that the kernel can longjmp immediately to shut down
+	the os because an unknown task and state was encountered.
+
+5. kernel.c, line 491: longjmp(k_context, KERNEL_RETURN_FROM_SWAP);
+	After changing the task's state to S_READY and rescheduling it, we jump
+	back to kernel mode, returning in line 317 of the dispatcher where the
+	context of the kernel was saved before task SWAP's.
+
+6. kernel.c, line 809: longjmp(k_context,1);
+	If a task has been started but the kernel hasn't (in the first few lines
+	of initTask()), you reschedule it and return to _createTask, line 753,
+	where the 1 assigned to that result is used in the subsequent if statement
+	on whether or not to init the next task.
+
+7. kernel.c, line 845: longjmp(k_context, KERNEL_RETURN_FROM_EXIT);
+	This is used to signify to the kernel that we've returned from
+	initializing a task, returning to the point where k_context (context of
+	kernel stack) was set, line 317 in the S_RUNNING case, so that we will
+	enter superMode and return a 0 to the dispatcher() method that is being
+	called continually in the while(1) loop in main, so that another interrupt
+	can be polled and task scheduled and executed.
+
+8. shell.c, line 328: longjmp(reset_context, POWER_DOWN_QUIT);
+	The builtin_cmd_list[] in commands.c signals what method to call when a
+	shell has typed in "quit", which is, according to this longjmp, the plac
+	where reset_context was saved with a setjmp in kernel.c, line 127, so that
+	the reset code could be decoded to quit the os.
+
+9. shell.c, line 401: longjmp(reset_context, POWER_DOWN_RESTART);
+	Like 8., this is used when the command reset has been entered in the shell
+	and we need to signify to the kernel that it needs to return to the
+	original context set by setjmp in kernel.c in main() before it started to restart.
+
+10. shell.c, 728: longjmp(reset_context, POWER_DOWN_QUIT);
+	Like 8., this is used when there has been a kernel error, so we report it
+	and return to the setjmp location in kernel.c and signal that we need to
+	quit the os.
+
+11. signals.c, line 134: longjmp(tcb[curTask].context, signo);
+	When receiving signals, we handle them by assigning the system call params
+	to the current tasks' params and returning to where that task's context
+	was set, so it knows that the handler is ready to be used because the
+	system call params are now set to the point to its params, line 804 of
+	kernel.c.
+
+12. signals.c, line 194: longjmp(reset_context, POWER_DOWN_QUIT);
+	If the signal is sent to kill a task with taskId 0, we longjmp to the
+	setjmp that was used to the save the context in reset_context, which is in
+	kernel.c in main, so that the system can be told to power down.
+
+13. signals.c, line 528: longjmp(tcb[curTask].kill_context, TRUE);
+	This returns the setjmp that is remembered with tcb[curTask].kill_context,
+	with TRUE returned, to line 814 in kernel.c, so that the if is entered,
+	the else skipped, and the task put back into the ready queue so we can
+	return to kernel mode.	
+
+14. trap.c, line 40: longjmp(k_context, KERNEL_CHECK_SIGNALS);
+	After the signal_handler is called to receive the context of the trap
+	structure's 0th param, we jump back into the kernel so we can continue to
+	check/handle signals in line 324 of kernels.c in superMode. The signal
+	handler is called right before this longjmp so we deal with it before
+	returning to the user's program.
+
+15. trap.c: longjmp(k_context, call_num);
+	Longjmps to the location similar to 14. in kernels.c, this time returning
+	the system call value so that the conditional section starting at line 389 can
+	be handled, so that system call will be ran.
+
+16. virtual_memory.c, line 219: longjmp( reset_context, POWER_DOWN_ERROR);
+	If there isn't enough virtual memory space as decided by the first
+	condition on line 211, this error is immediately longjmp-ed up to the
+	main(), where the setjmp there is remembered by the reset_context, which
+	would here return the value signifying we need to power down due to an
+	error (line 144 of kernel.c).

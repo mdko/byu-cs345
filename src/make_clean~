@@ -1,0 +1,2 @@
+#!/bin/bash
+rm test pri_que_test.o priority_queue.o

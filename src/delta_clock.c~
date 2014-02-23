@@ -1,0 +1,232 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <string.h>
+#include <assert.h>
+#include "delta_clock.h"
+#include "system_calls.h"
+#include "kernel.h"
+
+
+/**
+ * struct clockEvent - an event structure for the delta clock
+ * @init_value: the initial value of the delay
+ * @time: the current number of ticks until signaled
+ * @sem: the semaphore that will be signaled upon completion
+ * @periodic: this value determines if the event should be repeated
+ * @next: the pointer to the next event in the linked list
+ */
+typedef struct event
+{
+	int init_value;
+	int time;
+	int semId;
+	int periodic;
+	struct event* next;
+} clockEvent;
+
+// Delta Clock Variables
+clockEvent* deltaClock = 0;
+extern int taskSemIds[MAX_TASKS];			// task semaphore
+extern int superMode;						// system mode
+
+//@DISABLE_SWAPS
+
+
+
+unsigned long myClkTime;
+unsigned long myOldClkTime;
+
+
+/**
+ * _insertDeltaClock: insert a semaphore into the delta clock
+ * @time: the delay in tenths of a second
+ * @sem: the semaphore to be signaled at the end of the delay
+ * @periodic: if the delay/signal should be repeated
+ * @return: 0 if successful, -1 if failed
+ *
+ * This function should insert a clock event into the delta clock
+ * in the appropriate place.  If the time is less than 0 or if the
+ * semaphore is invalid, the function should return -1.  If this time
+ * is 0, the semaphore should be signaled before returning.
+ */
+int _insertDeltaClock(int time, int semId, int periodic)
+{	
+    assert("Error: Trying to call _insertDeltaClock in User Mode\n" && superMode);
+
+	if (time < 0 || _getSemaphore(semId) == NULL)
+		return -1;
+
+	if (time == 0) {
+		_semSignal(semId);
+		return 0;
+	}
+	
+	clockEvent* event = deltaClock;
+	int total_time = 0;
+	
+	clockEvent* new_event = malloc(sizeof(clockEvent));
+	new_event->init_value = time;
+	new_event->semId = semId;
+	new_event->periodic = periodic;
+	
+	if (event == NULL || time <= event->time) { //new_event should go at front of list
+
+		new_event->time = time;
+		new_event->next = event;
+		deltaClock = new_event;
+
+		if (event != NULL)
+			event->time -= time;
+			
+		return 0;
+	}
+	else { //the first isn't null, or is less than the time of event we're inserting
+		total_time += event->time;
+		
+		while (event->next != NULL && time > (total_time + event->next->time)) {
+			total_time += event->next->time;
+			event = event->next;
+		} //if event->next is null, we're at the end of the list, so just tack it on
+		  //we're also here if our time is less than the total time accumulated plus next
+		new_event->time = time - total_time;
+		new_event->next = event->next;
+		if (new_event->next != NULL)
+			new_event->next->time -= new_event->time;
+		event->next = new_event;
+		
+		return 0;
+	}
+
+	return -1;
+	
+}
+
+/**
+ * _deleteClockEvent: remove clock events from the delta clock
+ * @sem: the semaphore whose clock events should be deleted
+ * @return: 1 if successful, 0 if failed
+ *
+ * This function should remove all clock events from the delta clock
+ * associated with the sempahore identified with semId. The delta
+ * clock should be traversed to find all clock events associated
+ * with the matching semaphore.  The events should be removed from the
+ * linked list properly and any allocated memory should be freed.
+ */
+int _deleteClockEvent(int semId)
+{
+	clockEvent* event = deltaClock;
+	if (event == NULL)
+		 return 0;
+		 
+	// checking if first is what we want, if so, removing it from front and checking again
+	while (event != NULL && event->semId == semId) {
+		if (event->next != NULL)
+			event->next->time += event->time;
+		deltaClock = event->next;
+		free(event);
+		event = deltaClock;
+	}
+	
+	while (event != NULL && event->next != NULL) {	// we know first is not what we want
+			
+		if (event->next->semId == semId) {
+			
+			if (event->next->next != NULL) {
+				event->next->next->time += event->next->time;
+			}
+			
+			clockEvent* to_delete = event->next;
+			
+			event->next = event->next->next;
+			free(to_delete);
+		}
+		event = event->next;		
+	}
+	return 0;
+}
+
+/**
+ * _tickDeltaClock: tick delta clock and signal any finished events
+ *
+ * Tick the delta clock on a 1/10th second resolution signaling events
+ * as appropriate.  The clock should maintain a notion of time of last
+ * call to manage clock drift as it is only called in pollInterrupts.
+ * As semaphores are signaled, if the event is periodic, it should be
+ * added back to the delta clock.
+ */
+int _tickDeltaClock() {
+    
+    //_listDeltaClock();
+	long clock_difference = 0;
+	long time_left = 0;
+	
+    assert("Error: Trying to call _tickDeltaClock in User Mode\n" && superMode);
+   
+    myClkTime = clock();
+	
+	if (myOldClkTime == 0)
+		myOldClkTime = myClkTime;
+
+	clock_difference = (myClkTime - myOldClkTime)/ONE_TENTH_SEC;
+	time_left = clock_difference;
+	
+	if (deltaClock != NULL) {
+	
+		while (time_left > 0 && deltaClock) {
+		
+			int d_time = deltaClock->time;
+			deltaClock->time -= time_left;
+			time_left -= d_time;
+		
+			if (deltaClock->time <= 0) {
+				_semSignal(deltaClock->semId);
+		
+				// saving these in case its periodic
+				// we want to delete the event from queue before inserting it again,
+				// or we would be deleting the just inserting event
+				int init_value = deltaClock->init_value;
+				int semId = deltaClock->semId;
+				int periodic = deltaClock->periodic;
+		
+				_deleteClockEvent(deltaClock->semId);
+		
+				if (periodic)
+					_insertDeltaClock(init_value, semId, periodic);
+			}
+		}
+	}
+	
+	myOldClkTime += clock_difference * ONE_TENTH_SEC;
+ 	return 0;
+ }
+
+
+/**
+ *
+ */
+int _listDeltaClock()
+{
+    assert("Error: Trying to call _listDeltaClock in User Mode\n" && superMode);
+    if (!deltaClock) {
+    	return -1;
+    }
+    puts("*********************");
+    puts("Delta Clock Contents");
+    // delta clock queue is empty
+    if (!deltaClock) {
+        puts("Empty");
+    }
+    // Print all of the delta clock queue's contents
+    else {
+        clockEvent * n = deltaClock;
+        while (n) {
+            printf("Semaphore %s with time=%d\n", _getSemaphore(n->semId)->name, n->time);
+            n = n->next;
+        }
+    }
+    puts("*********************");
+	return 0;
+}
+
+//@ENABLE_SWAPS

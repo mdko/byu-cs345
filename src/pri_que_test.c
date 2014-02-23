@@ -1,0 +1,267 @@
+//To compile, 
+// gcc -Wall -g -I ../inc -c priority_queue.c pri_que_test.c 
+// gcc -Wall -g -I ../inc -o test pri_que_test.o priority_queue.o
+#include <stdio.h>
+#include "priority_queue.h"
+
+int main() {
+	PriorityQueue* pq = makeQueueP();
+
+	/**
+	 * Enqueuing
+	 */
+	//add to empty list
+	enqueueP(pq, 1, 30);
+	printf("Added 1 with 30.\n");
+	printf("Should be (1 30)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to end
+	enqueueP(pq, 2, 40);
+	printf("Added 2 with 40.\n");
+	printf("Should be (1 30) (2 40)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to front
+	enqueueP(pq, 3, 20);
+	printf("Added 3 with 20.\n");
+	printf("Should be (3 20) (1 30) (2 40)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add in the middle front somewhere
+	enqueueP(pq, 4, 25);
+	printf("Added 4 with 25.\n");
+	printf("Should be (3 20) (4 25) (1 30) (2 40)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add in the middle end somewhere
+	enqueueP(pq, 5, 35);
+	printf("Added 5 with 35.\n");
+	printf("Should be (3 20) (4 25) (1 30) (5 35) (2 40)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to end of list
+	enqueueP(pq, 6, 41);
+	printf("Added 6 with 35.\n");
+	printf("Should be (3 20) (4 25) (1 30) (5 35) (2 40) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to front of list
+	enqueueP(pq, 7, 18);
+	printf("Added 7 with 18.\n");
+	printf("Should be (7 18) (3 20) (4 25) (1 30) (5 35) (2 40) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to middle of list
+	enqueueP(pq, 8, 31);
+	printf("Added 8 with 31.\n");
+	printf("Should be (7 18) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add something where virtual_runtime is equal to something else in list
+	enqueueP(pq, 9, 20);
+	printf("Added 9 with 20.\n");
+	printf("Should be (7 18) (9 20) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add something where v_r is equal to thing at front of list
+	enqueueP(pq, 10, 18);
+	printf("Added 10 with 18.\n");
+	printf("Should be (10 18) (7 18) (9 20) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add something where v_r is equal to thing at end of list
+	enqueueP(pq, 11, 41);
+	printf("Added 11 with 41.\n");
+	printf("Should be (10 18) (7 18) (9 20) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	/**
+	 * Dequeueing
+	 */
+	int r0 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 10.\n");
+	printf("Result:   %d.\n", r0);
+	printf("Should be (7 18) (9 20) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r1 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 7.\n");
+	printf("Result:   %d.\n", r1);
+	printf("Should be (9 20) (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r2 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 9.\n");
+	printf("Result:   %d.\n", r2);
+	printf("Should be (3 20) (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r3 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 3.\n");
+	printf("Result:   %d.\n", r3);
+	printf("Should be (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	/**
+	 * Add to list after removing stuff
+	 */
+	//add to front
+	enqueueP(pq, 12, 22);
+	printf("Added 12 with 22.\n");
+	printf("Should be (12 22) (4 25) (1 30) (8 31) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to middle
+	enqueueP(pq, 13, 33);
+	printf("Added 13 with 33.\n");
+	printf("Should be (12 22) (4 25) (1 30) (8 31) (13 33) (5 35) (2 40) (11 41) (6 41)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//add to end
+	enqueueP(pq, 14, 42);
+	printf("Added 14 with 42.\n");
+	printf("Should be (12 22) (4 25) (1 30) (8 31) (13 33) (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	//remove from front again, until end
+	int r4 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 12.\n");
+	printf("Result:   %d.\n", r4);
+	printf("Should be (4 25) (1 30) (8 31) (13 33) (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r5 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 4.\n");
+	printf("Result:   %d.\n", r5);
+	printf("Should be (1 30) (8 31) (13 33) (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r6 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 1.\n");
+	printf("Result:   %d.\n", r6);
+	printf("Should be (8 31) (13 33) (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r7 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 8.\n");
+	printf("Result:   %d.\n", r7);
+	printf("Should be (13 33) (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r8 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 13.\n");
+	printf("Result:   %d.\n", r8);
+	printf("Should be (5 35) (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r9 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 5.\n");
+	printf("Result:   %d.\n", r9);
+	printf("Should be (2 40) (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r10 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 2.\n");
+	printf("Result:   %d.\n", r10);
+	printf("Should be (11 41) (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+	
+	int r13 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 11.\n");
+	printf("Result:   %d.\n", r13);
+	printf("Should be (6 41) (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r11 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 6.\n");
+	printf("Result:   %d.\n", r11);
+	printf("Should be (14 42)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	int r12 = (int)dequeueP(pq);
+	printf("Removed from front of list.\n");
+	printf("Should be 14.\n");
+	printf("Result:   %d.\n", r12);
+	printf("Should be <empty>\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+	
+	//add to empty list after having added and removed from it
+	enqueueP(pq, 14, 27);
+	printf("Added 14 with 27.\n");
+	printf("Should be (14 27)\n");
+	printf("Result:   ");
+	printQueueP(pq);
+	printf("*******************\n");
+
+	return 0;
+}

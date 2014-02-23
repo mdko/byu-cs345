@@ -1,0 +1,41 @@
+To test my signal handlers:
+I first wanted to determine which signal I was receiving, so in
+sigchld_handler, sigint_handler, and sigstp_handler, I would print out to the
+command line the integer representation of the signal (before I tried to
+implement any of the handler).
+
+To test them once implemented, I did the following test cases:
+-Ran a command in the fg, waited for it exit normally (WIFKEXITED), and made
+sure it printed a 0 as the signal (like the command testsc)
+-Ran a command in the fg, stopped it with ctrl-w (WIFKSTOPPED), and made sure
+it printed a 20 as the signal
+-Ran a command in the fg that stops itself (mystop), and made sure it printed
+a 20 as the signal
+-Ran a command in bg and used sk -20 <tid> to stop it, making sure it printed
+a 20 as the signal
+-Ran a command in bg that should stop itself (mystop), and made sure it
+printed a 20 as the signal
+-Ran a command in the bg and made as soon as it was starting to run, the shell
+printed a notice of the job running
+-Ran a command in the fg, waited for it interrupt itself, and made sure the
+signal was a 2
+-Ran a command in the fg and interrupted it with ctrl-x(WIFSIGNALED), and made sure its
+signal in the output was a 2
+-Ran a command in the bg and interrupted it with sk -2 <tid>, and made sure
+its signal in the output was a 2
+-Did the above, substituting <tid> for <jid> and verified the output signals
+-Did the above, adding a "-" before <tid> for the sk commands
+-Entered a non-existent command, made sure no command was run and an error was
+outputted
+-After running the above different tests, I also ran them in sequence of
+eachother without waiting for one to end (therefore I would have 2, 3, or 4
+tasks running at time, or 1 in fg, 2 in bg, 1 stopped, etc.)
+
+One of the tricky things that took me a while to test was why some output
+signals were being given as "0" instead of "2" or "9." It ended up being that
+I had used the linux "W*****" vs the "W**K**" functions.
+
+Errors/incapabilities I noticed:
+It won't stop via ctrl-x or ctrl-w after running the "ts" task.
+Typing in <command> <arg> <&> <space><tab> makes the command unreadable by the
+parser and results in a usage statement (without or without the ampersand).

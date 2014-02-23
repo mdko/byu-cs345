@@ -1,0 +1,267 @@
+From 1bfc8c1b656515c31a28fbfccd655c3f0b21d42e Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Fri, 22 Mar 2013 16:49:15 -0600
+Subject: [PATCH] Virtual Memory Submission for Michael Christensen. My
+ virtual-memory-I.txt file is in the main kernel directory.
+
+---
+ Makefile             |   8 +--
+ inc/virtual_memory.h |   1 +
+ src/virtual_memory.c | 136 +++++++++++++++++++++++++++++++++++++++++++++------
+ virtual-memory-I.txt |  27 ++++++++++
+ 4 files changed, 154 insertions(+), 18 deletions(-)
+ create mode 100644 virtual-memory-I.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..b9c5496 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -96,7 +96,7 @@ OBJS	=			obj/kernel.o							\
+ 					obj-ref/$(ARCH)/scheduler.o				\
+ 					obj-ref/$(ARCH)/queue_list.o			\
+ 					obj-ref/$(ARCH)/jurassic_park.o			\
+-					obj-ref/$(ARCH)/virtual_memory.o		\
++					obj/virtual_memory.o					\
+ 					obj-ref/$(ARCH)/fat.o					\
+ 
+ 
+@@ -120,7 +120,7 @@ SWAPOBJS	=		obj/kernel-swap.o						\
+ 					obj-ref/$(ARCH)/scheduler-swap.o		\
+ 					obj-ref/$(ARCH)/queue_list-swap.o		\
+ 					obj-ref/$(ARCH)/jurassic_park-swap.o	\
+-					obj-ref/$(ARCH)/virtual_memory-swap.o	\
++					obj/virtual_memory-swap.o				\
+ 					obj-ref/$(ARCH)/fat-swap.o				\
+ 
+ 
+diff --git a/inc/virtual_memory.h b/inc/virtual_memory.h
+index 7491ac2..f64b2fb 100644
+--- a/inc/virtual_memory.h
++++ b/inc/virtual_memory.h
+@@ -24,6 +24,7 @@ typedef struct {
+ void initVM();
+ int getFreeRPT();
+ unsigned short int *getMemAdr(int va, int rwFlg);
++int findAndSwapFrame(int taskRPT);
+ void setFrameTableBits(int flg, int sf, int ef);
+ int getAvailableFrame();
+ int swapFrame();
+diff --git a/src/virtual_memory.c b/src/virtual_memory.c
+index 625ed56..e51306b 100644
+--- a/src/virtual_memory.c
++++ b/src/virtual_memory.c
+@@ -51,10 +51,10 @@ unsigned short int swapMemory[LC3_MAX_SWAP_MEMORY];
+ // statistics
+ int memAccess;							// memory accesses
+ int memHits;							// memory hits
+-int memPageFaults;					// memory faults
++int memPageFaults;						// memory faults
+ int nextPage;							// swap page size
+ int pageReads;							// page reads
+-int pageWrites;						// page writes
++int pageWrites;							// page writes
+ 
+ int numRPT = 32;
+ 
+@@ -93,13 +93,6 @@ int getFreeRPT() {
+ 	return 0;
+ }
+ 
+-
+-
+-
+-
+-
+-
+-
+ // @ENABLE_SWAPS
+ 
+ // **************************************************************************
+@@ -121,20 +114,135 @@ int getFreeRPT() {
+ //@DISABLE_SWAPS
+ unsigned short int *getMemAdr(int va, int rwFlg)
+ {
+-    unsigned short int pa = va;
+-
+-	// turn off virtual addressing for system RAM
+-	if (va < 0x3000) {
++	/*
++	 * Note:
++	 * I took the pseudo-code for this method 
++	 * from the slides given in class.
++	 */
++    unsigned short int pa, rpta, rpte1, rpte2, upta, upte1, upte2;
++	int taskRPT, frame;
++
++	TCB* tcb = getTCB();
++	tid_t curr_tid = gettid();
++	taskRPT = tcb[curr_tid].RPT; // this task's root page table
++	if (!taskRPT)
++		taskRPT = tcb[curr_tid].RPT = getFreeRPT(); 
++		
++	
++	pa = va;
++
++	if (va < 0x3000) {			// turn off virtual addressing for system RAM
+ 		memAccess++;
+ 		memHits++;
+ 		return &memory[va];
+ 	}
+ 
+-	return &memory[pa];
++	rpta = taskRPT + RPTI(va);  // address of the entry in the root page table for this task
++	rpte1 = MEMWORD(rpta); 		// upper word of the entry at rpta in this task's root page table
++	rpte2 = MEMLOWWORD(rpta); 	// lower word of the entry at rpta in this task's root page table
++
++	if (DEFINED(rpte1)) { 		// rpte defined(VALID), referenced frame is in memory, so proceed
++	}
++	else {				  		// rpte undefined/Valid bit is a 0 (page fault)
++								// 1. get a UPT frame from memory (may have to free up frame)
++								// 2. if paged out, load swapped page into UPT frame
++								// 		else initialize UPT
++		frame = getAvailableFrame();
++		rpte1 = SET_DEFINED(frame); //TODO why frame and not rpte1
++		if (PAGED(rpte2)) { 	// UPT frame paged out (Swap valid bit is 1, meaning referenced
++								// page is in swap space aka the disk)
++		   						//	- so read from SWAPPAGE(rpte2) into frame
++			accessPage(SWAPPAGE(rpte2), frame, PAGE_READ);
++		}
++		else { 							// define new upt frame and reference from rpt
++			rpte1 = SET_DIRTY(rpte1);	// dirty because referenced page is new
++			rpte2 = 0; 					// new UPT frame
++		}
++	}
++	// Store the newly masked rpte1 at the upper word at rpta address (we've just/are about
++	//  set its pinned, referenced, dirty bits)
++	MEMWORD(rpta) = rpte1 = SET_REF(SET_PINNED(rpte1));	// set rpt frame access bit
++														// "a UPT is pinned in memory as
++														// long as there are any of the pages
++														// it indexes in physical memory"
++	// And store rpte2 at appropriate location in lower word of rpte (rpte2 might have just been
++	// newly defined, or not)
++	MEMLOWWORD(rpta) = rpte2;
++
++
++	upta = (FRAME(rpte1)<<6) + UPTI(va);
++	upte1 = MEMWORD(upta);
++	upte2 = MEMLOWWORD(upta);
++
++	if (DEFINED(upte1)) { 		// upte defined (hit), so proceed
++	}
++	else {				  		// upte undefined
++								// 1. get a physical frame (may have to free up frame) 
++								// (x3000 - limit) (192 - 1023)
++								// 2. if paged out (DEFINED? or PAGED), 
++								//  load swapped page into physical frame
++								// 	  else new frame
++		frame = getAvailableFrame();
++		if (frame == -1) { 		// We're out of data frames, use primitive clock alg to find one
++			frame = findAndSwapFrame(taskRPT);
++		}
++		upte1 = SET_DEFINED(frame);
++		if (PAGED(upte2)) {
++			accessPage(SWAPPAGE(upte2), frame, PAGE_READ);
++		}
++		else {
++			upte1 = SET_DIRTY(upte1);	// dirty because referenced page is new?
++			upte2 = 0;
++		}
++	}
++	if (rwFlg) 
++		upte1 = SET_DIRTY(upte1);
++
++	MEMWORD(upta) = upte1 = SET_REF(upte1); // TODO review this
++	MEMLOWWORD(upta) = upte2;
++	pa = (FRAME(upte1)<<6) + FRAMEOFFSET(va); // Physical address = lower 10 bits of upper word
++											  //  in UPTE as upper 10 bits with frame offset
++											  //  from original virtual address as lower 6 bits
++	return &memory[pa]; 					  // return physical address
+ } // end getMemAdr
+ //@ENABLE_SWAPS
+ 
++//@DISABLE_SWAPS
++int findAndSwapFrame(int taskRPT) {
++
++	int i, j, frame, page;
++	int rpta, rpte1, upta, upte1, upte2;
++	for (i = 0; i < 64; i += 2) { 
++		rpta = taskRPT + i;
+ 
++		rpte1 = MEMWORD(rpta);
++		if (!DEFINED(rpte1))
++			continue;
++
++		for (j = 0; j < 64; j += 2) {
++			upta = (FRAME(rpte1) << 6) + j;
++			upte1 = MEMWORD(upta);
++			upte2 = MEMLOWWORD(upta);
++			if (DEFINED(upte1)) {
++				if (PAGED(upte2)) //old write
++					page = accessPage(SWAPPAGE(upte2), FRAME(upte1), PAGE_OLD_WRITE);
++				else			  //new write
++					page = accessPage(0, FRAME(upte1), PAGE_NEW_WRITE);
++				//upte1 = CLEAR_DEFINED(CLEAR_REF(CLEAR_DIRTY(upte1)));
++				
++				frame = FRAME(upte1);
++				upte1 = 0;
++				upte2 = page;
++				upte2 = SET_PAGED(upte2);
++				MEMWORD(upta) = upte1;
++				MEMLOWWORD(upta) = upte2;
++				return frame;
++			}
++		}
++	}
++	return -1;
++}
++//@ENABLE_SWAPS
+ 
+ // **************************************************************************
+ // **************************************************************************
+diff --git a/virtual-memory-I.txt b/virtual-memory-I.txt
+new file mode 100644
+index 0000000..cc27ce4
+--- /dev/null
++++ b/virtual-memory-I.txt
+@@ -0,0 +1,27 @@
++My implementation of virtual memory part I is based on the pseudo-code given
++in the slides in the powerpoints. My basic algorithm is that I check to see
++whether the root page table for a task, the root page table entry
++corresponding to the passed-in virtual address, and the user page table entry,
++are defined, in that order. When one of those aren't, I get a frame (in the
++case of the latter two). For this part of the project, I allow the swapping in
++and out of data frames via my function "findAndSwapFrame(int taskRPT)", which
++will free up a data frame for use in memory by writing its contents to disk
++when necessary (we run out of data frames).
++
++To test my implementation, I first ran "im 320" and "mem", along with "im 320"
++and "cra." When these didn't work, I used "im 3" and the following commands in
++sequence: "vma 0x3000, vma 0x3040, vma 0x3080, vma 0x3120." By running these
++same commands on both the reference build and my own swap build, I was able
++to find the major bugs that kept me from completing the project. I found via
++this method that I wasn't correctly assigning a newly freed frame when needed,
++and that the upte1 bits weren't being cleared correctly, nor the page where
++the swapped data was being put on disk being recorded correctly. After solving
++those problems in my "findAndSwapFrame" function, mem and cra worked
++correctly, as did my comparing my implementation against the reference
++implementation via "vma 0x(nnnn)" etc.
++
++Limitations: you can break it by running "im 320", "mem", and "cra" in sequeunce without
++restarting the kernel between the end of "mem" and the beginning of "cra" and
++doing "im 320" between those. Also, swapping user page tables isn't
++implemented yet (for part 2), so doing something that relies on that would
++also break it.
+-- 
+1.8.1.2
+

@@ -1,0 +1,41 @@
+I built my solution incrementally, as the website suggested, so I could verify
+each task functioned as correctly (as far as it could function correctly
+without full interaction with the others). Therefore, I started with the
+visitor task and saw that it was able to visit the ticket booth, museum, and
+gift shop and leave the park, incrementing the fields in ticket booth and
+cntrl room appropriately.
+
+I used various resource semaphores to control park capacity, the total number
+of tickets available, and the museum and giftshop capacities. I used a mutex
+semaphore to control whether a visitor or car task could access a driver. I
+used various signal semaphores to allow communication/hand-shaking between
+tasks that needed to exchange information (as an example, visitors and cars
+could wakeup a driver after being given the need_driver_mutex, having
+previously signaled that they either 1. need a ticket or 2. need to drive(in
+car's case)). I also used these signal semaphores to coordinate when a car
+needed a passenger (so a visitor could know).
+
+I used the mailbox, driver_mailbox, and car_mailbox sempahores to exchange
+information between the tasks so that the visitors would be able to be
+signaled once the tour ride was over, so a driver would know when it was and
+wasn't driving, and to tell a driver which car it was driving, respectively.
+
+I used a mutex for driver access, so that only one task could be asking for a
+driver at a time. By using the semTryLock within the driver task, I was able
+to avoid starvation (where a driver would wait to leave with a car, but
+couldn't because another visitor was waited for a ticket, etc.)
+
+In testing, I verified that when there were more visitors in the park with tickets than the number of cars could handle, that those visitors waited in the car line
+as expected.
+
+I also tested and verified that when there were more visitors in the park than
+the number of tickets available, that those visitors waited in the ticket line
+until other visitors had boarded a tour car to give up their ticket.
+
+I also tested most of the possible number of guests, starting at 3 and going until
+45.
+
+Limitations-wise, I see none based on the functional requirements given in the
+lab specification. There would be problems doing visitors that weren't in
+multiple of 3 batches, but I know that is why the spec for this was given as
+it was.

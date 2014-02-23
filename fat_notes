@@ -1,0 +1,6 @@
+Questions:
+What determines how many entries are in each sector (eg 16 entries/sector, 14x16 = 224 entries max in root directory)?
+In picture of cluster index to physical cluster, what are the yellow/blue alignments indicating?
+	also the four in the fat table refers both to the section in the physical cluster and the next entry to look at?
+	what does "there are 3072 FAT entries in each FAT table (512 Bytes per sector * 9 sectors...)" what is 9?
+Explain disk-layout picture

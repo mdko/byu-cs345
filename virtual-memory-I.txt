@@ -1,0 +1,27 @@
+My implementation of virtual memory part I is based on the pseudo-code given
+in the slides in the powerpoints. My basic algorithm is that I check to see
+whether the root page table for a task, the root page table entry
+corresponding to the passed-in virtual address, and the user page table entry,
+are defined, in that order. When one of those aren't, I get a frame (in the
+case of the latter two). For this part of the project, I allow the swapping in
+and out of data frames via my function "findAndSwapFrame(int taskRPT)", which
+will free up a data frame for use in memory by writing its contents to disk
+when necessary (we run out of data frames).
+
+To test my implementation, I first ran "im 320" and "mem", along with "im 320"
+and "cra." When these didn't work, I used "im 3" and the following commands in
+sequence: "vma 0x3000, vma 0x3040, vma 0x3080, vma 0x3120." By running these
+same commands on both the reference build and my own swap build, I was able
+to find the major bugs that kept me from completing the project. I found via
+this method that I wasn't correctly assigning a newly freed frame when needed,
+and that the upte1 bits weren't being cleared correctly, nor the page where
+the swapped data was being put on disk being recorded correctly. After solving
+those problems in my "findAndSwapFrame" function, mem and cra worked
+correctly, as did my comparing my implementation against the reference
+implementation via "vma 0x(nnnn)" etc.
+
+Limitations: you can break it by running "im 320", "mem", and "cra" in sequeunce without
+restarting the kernel between the end of "mem" and the beginning of "cra" and
+doing "im 320" between those. Also, swapping user page tables isn't
+implemented yet (for part 2), so doing something that relies on that would
+also break it.

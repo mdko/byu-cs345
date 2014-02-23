@@ -1,0 +1,449 @@
+From aa7f660f31d781931c1c9246eb908c793b6bfc4e Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Fri, 8 Mar 2013 19:06:14 -0700
+Subject: [PATCH] My jurassic_park project submission. The jurassic_park.txt
+ file is in the main kernel directory
+
+---
+ Makefile            |   8 +-
+ jurassic_park.txt   |  41 +++++++
+ src/jurassic_park.c | 314 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 356 insertions(+), 7 deletions(-)
+ create mode 100644 jurassic_park.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..559fca0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -95,7 +95,7 @@ OBJS	=			obj/kernel.o							\
+ 					obj-ref/$(ARCH)/semaphores.o			\
+ 					obj-ref/$(ARCH)/scheduler.o				\
+ 					obj-ref/$(ARCH)/queue_list.o			\
+-					obj-ref/$(ARCH)/jurassic_park.o			\
++					obj/jurassic_park.o						\
+ 					obj-ref/$(ARCH)/virtual_memory.o		\
+ 					obj-ref/$(ARCH)/fat.o					\
+ 
+@@ -119,7 +119,7 @@ SWAPOBJS	=		obj/kernel-swap.o						\
+ 					obj-ref/$(ARCH)/semaphores-swap.o		\
+ 					obj-ref/$(ARCH)/scheduler-swap.o		\
+ 					obj-ref/$(ARCH)/queue_list-swap.o		\
+-					obj-ref/$(ARCH)/jurassic_park-swap.o	\
++					obj/jurassic_park-swap.o				\
+ 					obj-ref/$(ARCH)/virtual_memory-swap.o	\
+ 					obj-ref/$(ARCH)/fat-swap.o				\
+ 
+diff --git a/jurassic_park.txt b/jurassic_park.txt
+new file mode 100644
+index 0000000..153b8ff
+--- /dev/null
++++ b/jurassic_park.txt
+@@ -0,0 +1,41 @@
++I built my solution incrementally, as the website suggested, so I could verify
++each task functioned as correctly (as far as it could function correctly
++without full interaction with the others). Therefore, I started with the
++visitor task and saw that it was able to visit the ticket booth, museum, and
++gift shop and leave the park, incrementing the fields in ticket booth and
++cntrl room appropriately.
++
++I used various resource semaphores to control park capacity, the total number
++of tickets available, and the museum and giftshop capacities. I used a mutex
++semaphore to control whether a visitor or car task could access a driver. I
++used various signal semaphores to allow communication/hand-shaking between
++tasks that needed to exchange information (as an example, visitors and cars
++could wakeup a driver after being given the need_driver_mutex, having
++previously signaled that they either 1. need a ticket or 2. need to drive(in
++car's case)). I also used these signal semaphores to coordinate when a car
++needed a passenger (so a visitor could know).
++
++I used the mailbox, driver_mailbox, and car_mailbox sempahores to exchange
++information between the tasks so that the visitors would be able to be
++signaled once the tour ride was over, so a driver would know when it was and
++wasn't driving, and to tell a driver which car it was driving, respectively.
++
++I used a mutex for driver access, so that only one task could be asking for a
++driver at a time. By using the semTryLock within the driver task, I was able
++to avoid starvation (where a driver would wait to leave with a car, but
++couldn't because another visitor was waited for a ticket, etc.)
++
++In testing, I verified that when there were more visitors in the park with tickets than the number of cars could handle, that those visitors waited in the car line
++as expected.
++
++I also tested and verified that when there were more visitors in the park than
++the number of tickets available, that those visitors waited in the ticket line
++until other visitors had boarded a tour car to give up their ticket.
++
++I also tested most of the possible number of guests, starting at 3 and going until
++45.
++
++Limitations-wise, I see none based on the functional requirements given in the
++lab specification. There would be problems doing visitors that weren't in
++multiple of 3 batches, but I know that is why the spec for this was given as
++it was.
+diff --git a/src/jurassic_park.c b/src/jurassic_park.c
+index 35e1053..2e6e04c 100644
+--- a/src/jurassic_park.c
++++ b/src/jurassic_park.c
+@@ -44,10 +44,59 @@ extern int fillSeatSemId[NUM_CARS];			// (signal) seat ready to fill
+ extern int seatFilledSemId[NUM_CARS];			// (wait) passenger seated
+ extern int rideOverSemId[NUM_CARS];			// (signal) ride over
+ extern int visitors;
++int tickets;
++int park_cap;
++int museum_cap;
++int giftshop_cap;
++int wakeup_driver;
++int need_to_drive;
++int need_driver_mutex;
++int need_ticket;
++int buy_ticket;
++int ticket_ready;
++int get_passenger;
++int seat_taken;
++int mailbox_empty;
++int mailbox_full;
++int mailbox;
++int driver_mailbox_empty;
++int driver_mailbox_full;
++int driver_mailbox;
++int visitor_sem[NUM_CARS][NUM_SEATS];
++int drivers_sem[NUM_CARS]; //holds corresponding driver
++int car_mailbox_empty;
++int car_mailbox_full;
++int car_mailbox;
+ 
++void initializeGlobalVariables() {
++	
++	park_cap = createSemaphore("park_capacity", COUNTING, MAX_IN_PARK);
++	tickets = createSemaphore("tickets", COUNTING, MAX_TICKETS);
++	museum_cap = createSemaphore("museum_capactiy", COUNTING, MAX_IN_MUSEUM);
++	giftshop_cap = createSemaphore("giftshop_capacity", COUNTING, MAX_IN_GIFTSHOP);
++	
++	//mutex sems
++	need_driver_mutex = createSemaphore("need_driver", BINARY, 1);
+ 
++	//signal sems (0 so someone has to signal them first)
++	wakeup_driver = createSemaphore("wakeup_driver", BINARY, 0);
++	need_ticket = createSemaphore("need_ticket", BINARY, 0);
++	buy_ticket = createSemaphore("buy_ticket", BINARY, 0);
++	get_passenger = createSemaphore("get_passenger", BINARY, 0);
++	seat_taken = createSemaphore("seat_taken", BINARY, 0);
++	ticket_ready = createSemaphore("ticket_ready", BINARY, 0);
++	need_to_drive = createSemaphore("need_to_drive", BINARY, 0);
+ 
+-void initializeGlobalVariables() {
++	mailbox_empty = createSemaphore("mailbox_empty", BINARY, 1);
++	mailbox_full = createSemaphore("mailbox_full", BINARY, 0);
++
++	driver_mailbox_empty = createSemaphore("driver_mailbox_empty", BINARY, 1);
++	driver_mailbox_full = createSemaphore("driver_mailbox_full", BINARY, 0);
++
++	car_mailbox_empty = createSemaphore("car_mailbox_empty", BINARY, 1);
++	car_mailbox_full = createSemaphore("car_mailbox_full", BINARY, 0);
++
++	srand(time(0));	
+ }
+ 
+ // ***********************************************************************
+@@ -59,8 +108,71 @@ int carTask(int argc, char* argv[])
+     // while there are still people in the park
+ 	while (myPark.numExitedPark < visitors) {
+ 
+-        swapTask();
++        //swapTask();
++
++		//wait for available seat
++		semWait(fillSeatSemId[atoi(argv[1])]);
++
++		//signal for visitor to take that available seat
++		semSignal(get_passenger);
++
++		//wait for visitor to reply
++		semWait(seat_taken);
++
++		//record semaphore visitor just put in mailbox
++		//car keeps an array of its visitors
++		int curr_pass;
++		semWait(parkMutexSemId);
++		curr_pass = myPark.cars[atoi(argv[1])].passengers;
++		semSignal(parkMutexSemId);
++
++		semWait(mailbox_full);
++		visitor_sem[atoi(argv[1])][curr_pass] = mailbox;
++		semSignal(mailbox_empty);
++		
++		semSignal(seatFilledSemId[atoi(argv[1])]);
++		
++		//if last passenger
++		int curr_pass_num;
++		semWait(parkMutexSemId);
++		curr_pass_num = myPark.cars[atoi(argv[1])].passengers;
++		semSignal(parkMutexSemId);
++
++		if (curr_pass_num == NUM_SEATS) {
++			//wait until no one else is trying to access a driver
++			semWait(need_driver_mutex);
+ 
++			//wake him up
++			semSignal(wakeup_driver);
++
++			//tell him he's driving
++			semSignal(need_to_drive);
++
++			//keep track of which driver just agreed to drive this car
++			//wait until driver mailbox is full
++			semWait(driver_mailbox_full);
++			drivers_sem[atoi(argv[1])] = driver_mailbox; //so we can signal when driver is done
++			semSignal(driver_mailbox_empty); //signal we emptied it/got the information inside it
++			
++			//tell driver what car he is driving
++			semWait(car_mailbox_empty);
++			car_mailbox = atoi(argv[1]) + 1;
++			semSignal(car_mailbox_full);
++
++			//got driver
++			semSignal(need_driver_mutex);
++		
++			//now that car is full, wait until ride is over
++			semWait(rideOverSemId[atoi(argv[1])]);
++
++			//when ride is over, loop over that array of visitors
++			int i;
++			for (i = 0; i < NUM_SEATS; i++) {
++				semSignal(visitor_sem[atoi(argv[1])][i]); //tell every visitor in this car teh ride is over
++			}
++			//release driver
++			semSignal(drivers_sem[atoi(argv[1])]);
++		}
+ 	}
+ 
+ 	return 0;
+@@ -72,6 +184,168 @@ int carTask(int argc, char* argv[])
+ // visitorTask(int argc, char* argv[])
+ int visitorTask(int argc, char* argv[])
+ {
++	//initialize private semaphores for this visitor
++	char buf0[32], buf1[32];
++	sprintf(buf0, "visitor%s_timing_sem", argv[1]);
++	sprintf(buf1, "visitor%s_personal_sig_sem", argv[1]);
++	int vis_timing_sem = createSemaphore(buf0, COUNTING, 0);
++	int vis_sig_sem = createSemaphore(buf1, BINARY, 0);
++
++	{
++		//wait to show up outside park
++		insertDeltaClock(rand() % 100, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++
++		//visitor waits for mutex so it can update park interface
++		semWait(parkMutexSemId);
++		myPark.numOutsidePark++;
++		//give up mutex so park display can update itself, others can use mutex
++		semSignal(parkMutexSemId);
++	}
++
++	{
++		//visitor waits until park is empty enough to enter, then enters
++		semWait(park_cap);
++
++		semWait(parkMutexSemId);
++		//enter park
++		myPark.numOutsidePark--;
++		myPark.numInPark++;
++		//visitor immediately enters ticket line
++		myPark.numInTicketLine++;
++		semSignal(parkMutexSemId);
++	}
++
++	{
++		//wait in ticket line for some time
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++
++		//wait on a ticket to be available (resource sem)
++		semWait(tickets);
++		//now that available, wait until no one is asking any driver for anything
++		semWait(need_driver_mutex);
++		{
++			//signal you need a ticket
++			semSignal(need_ticket);
++			{
++				//wake up the driver
++				semSignal(wakeup_driver);
++	
++				//wait until ticket available
++				semWait(ticket_ready);
++			}
++		}
++		//release driver
++		semSignal(need_driver_mutex);
++		
++		//update interface
++		semWait(parkMutexSemId);
++		myPark.numInTicketLine--;
++		myPark.numTicketsAvailable--;
++		//visitor immediately enters museum line
++		myPark.numInMuseumLine++;
++		semSignal(parkMutexSemId);
++	}
++
++	//wait for a time in line for museum, leaves line and enter museum
++	{
++		//time waiting in line
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++		//wait for a spot in museum to open up
++		semWait(museum_cap);
++
++		//update interface	
++		semWait(parkMutexSemId);
++		myPark.numInMuseumLine--;
++		myPark.numInMuseum++;
++		semSignal(parkMutexSemId);
++	}
++
++
++	//leave museum, enter tour car line
++	{
++		//time in museum
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++		//give up spot in museum, enter tour car line
++		semSignal(museum_cap);
++		semWait(parkMutexSemId);
++		myPark.numInMuseum--;
++		myPark.numInCarLine++;
++		semSignal(parkMutexSemId);
++	}
++	
++	//leave tour car line, take tour, give up ticket
++	{
++		//wait in tour car line for a bit
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++
++		//wait until a car needs a passenger
++		semWait(get_passenger);
++		//tell car my personal semaphore via mailbox
++		semWait(mailbox_empty);
++		mailbox = vis_sig_sem;
++		semSignal(mailbox_full);
++
++		//take a seat then
++		semSignal(seat_taken);
++
++		//tell display that visitor left line, enter car
++		semWait(parkMutexSemId);
++		myPark.numInCarLine--;
++		myPark.numInCars++;
++		myPark.numTicketsAvailable++;
++		semSignal(parkMutexSemId);
++	
++		//give up ticket after boarding tour car
++		semSignal(tickets);
++	}
++
++	//wait for ride to be over, leave tour
++	{
++		semWait(vis_sig_sem);
++		semWait(parkMutexSemId);
++		myPark.numInCars--;
++		myPark.numInGiftLine++;
++		semSignal(parkMutexSemId);
++	}
++
++	//enter gift shop
++	{
++		//time waiting in line
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++		//wait for the gift shop to have a spot for visitor to enter
++		semWait(giftshop_cap);
++
++		//enter gift shop, show it on interface
++		semWait(parkMutexSemId);
++		myPark.numInGiftLine--;
++		myPark.numInGiftShop++;
++		semSignal(parkMutexSemId);
++	}
++
++	//exit gift shop, waits for mutex so it can show it's leaving the park
++	{
++		//time in gift shop
++		insertDeltaClock(rand() % 30, vis_timing_sem, 0);
++		semWait(vis_timing_sem);
++		//give up spot in gift shop
++		semSignal(giftshop_cap);
++	
++		semWait(parkMutexSemId);
++		myPark.numInGiftShop--;
++		myPark.numInPark--;
++		myPark.numExitedPark++;
++		semSignal(parkMutexSemId);
++	}
++
++	//give back a slot for someone else to come in
++	semSignal(park_cap);
++	
+ 	return 0;
+ } // end visitorTask
+ 
+@@ -80,10 +354,44 @@ int visitorTask(int argc, char* argv[])
+ // driverTask
+ int driverTask(int argc, char* argv[])
+ {
++	char buf[32];
++	sprintf(buf, "driver%s_sig_sem", argv[1]);
++	int driver_sig_sem = createSemaphore(buf, COUNTING, 0);
++	
+ 	while (TRUE) {
++		semWait(wakeup_driver);
++		
++		if (semTryLock(need_ticket)) {
++			
++			semWait(parkMutexSemId);
++			myPark.drivers[atoi(argv[1])] = -1;
++			semSignal(parkMutexSemId);
++			semSignal(ticket_ready);
++		}
++		else if (semTryLock(need_to_drive)) {
++
++			semWait(driver_mailbox_empty);
++			driver_mailbox = driver_sig_sem;
++			semSignal(driver_mailbox_full);
+ 
+-        swapTask();
++			int car_driver_is_driving;
++			semWait(car_mailbox_full);
++			car_driver_is_driving = car_mailbox;
++			semSignal(car_mailbox_empty);
+ 
++			semWait(parkMutexSemId);
++			myPark.drivers[atoi(argv[1])] = car_driver_is_driving; 
++			semSignal(parkMutexSemId);
++		
++			semWait(driver_sig_sem); //wait until ride is over and signaled by car task
++		}
++		else
++			printf("Error: Driver woken up when a ticket or driver not needed.");
++		
++		//put driver to sleep
++		semWait(parkMutexSemId);
++		myPark.drivers[atoi(argv[1])] = 0;
++		semSignal(parkMutexSemId);
+ 	}
+ 	return 0;
+ } // end driverTask
+-- 
+1.8.1.2
+

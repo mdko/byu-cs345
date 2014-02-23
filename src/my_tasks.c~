@@ -1,0 +1,279 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <string.h>
+
+#include "semaphores.h"
+#include "scheduler.h"
+#include "delta_clock.h"
+#include "system_calls.h"
+#include "signals.h"
+#include "kernel.h"
+#include "type_defs.h"
+
+/**
+ * myint - send KSIGINT after n seconds
+ */
+int myint(int argc, char* argv[])
+{
+	tid_t tid = gettid();
+	char name[128];
+    int secs;
+	int s = NULL_SEMAPHORE;
+	int i;
+
+    if (argc != 2) {
+		fprintf(stderr, "Usage: %s <n>\n", argv[0]);
+		return 1;
+    }
+    secs = atoi(argv[1]);
+	sprintf(name, "P1_myint - delta clock %d secs - tid %d", secs, tid);
+	s = createSemaphore(name, BINARY, 0);
+	assert(s != NULL_SEMAPHORE);
+	insertDeltaClock(10,s,1);
+
+	// Wait until you are ticked
+	for (i = 0; i < secs; i++) {
+		semWait(s);
+	}
+
+	deleteClockEvent(s);
+	deleteSemaphore(s);
+
+    if (sigKill(tid, KSIGINT) < 0) {
+		fprintf(stderr, "sigKill (int) error");
+	}
+
+	// Should never reach here because it gets killed first
+	printf("Shouldn't reach here in myint\n");
+	return 0;
+}
+
+/**
+ * myspin - run for n seconds, then return
+ */
+int myspin(int argc, char* argv[]) {
+    int secs;
+	tid_t tid = gettid();
+	char name[128];
+	int s = NULL_SEMAPHORE;
+	int i;
+
+	if (argc != 2) {
+		fprintf(stderr, "Usage: %s <n>\n", argv[0]);
+		return 3;
+    }
+
+    secs = atoi(argv[1]);
+
+	sprintf(name, "P1_myspin - delta clock %d secs - tid %d", secs, tid);
+	s = createSemaphore(name, BINARY, 0);
+	assert(s);
+	insertDeltaClock(10,s,1);
+
+	// Wait until you are ticked
+	for (i = 0; i < secs; i++) {
+		semWait(s);
+	}
+
+	deleteClockEvent(s);
+	deleteSemaphore(s);
+
+    return 0;
+}
+
+/**
+ * mysplit - start a task, wait, then return
+ */
+int mysplit(int argc, char* argv[])
+{
+	tid_t tid;
+
+    if (argc != 2) {
+		fprintf(stderr, "Usage: %s <n>\n", argv[0]);
+		return -1;
+    }
+
+	//int i;
+	//for (i = 0; i < argc; i++)
+	//	printf("%s\n", argv[i]);
+
+	NewTask mySplitTask;
+	mySplitTask.name = "myplit";
+	mySplitTask.task = myspin;
+	mySplitTask.priority = MED_PRIORITY;
+	mySplitTask.argc = argc;
+	mySplitTask.argv = argv;
+	mySplitTask.parentHandlers = TRUE;
+	mySplitTask.tgidNew = FALSE;
+	tid = createTask(&mySplitTask);
+
+    /* parent waits for child to terminate */
+    wait_b(NULL);
+
+	return 0;
+}
+
+/**
+ * mystop - run for n seconds, then send KSIGSTOP to itself
+ */
+int mystop(int argc, char* argv[]) {
+	tid_t tid = gettid();
+	char name[128];
+    int secs;
+	int s = NULL_SEMAPHORE;
+	int i;
+
+    if (argc != 2) {
+		fprintf(stderr, "Usage: %s <n>\n", argv[0]);
+		return 1;
+    }
+
+    secs = atoi(argv[1]);
+
+	sprintf(name, "P1_mystop - delta clock %d secs - tid %d", secs, tid);
+	s = createSemaphore(name, BINARY, 0);
+	assert(s);
+	insertDeltaClock(10,s,1);
+
+	// Wait until you are ticked
+	for (i = 0; i < secs; i++) {
+		semWait(s);
+	}
+
+	deleteClockEvent(s);
+	deleteSemaphore(s);
+
+    if (sigKill(tid, KSIGTSTP) < 0) {
+		fprintf(stderr, "sigKill (int) error");
+	}
+
+	return 0;
+}
+
+
+int testScheduler(int argc, char* argv[]) {
+	tid_t tids[15];
+	int s = createSemaphore("timing", BINARY, 0);
+
+	NewTask myTask0;
+	char* arg0[2];
+	char name0[32];
+	char args0[32];
+	arg0[0] = name0;
+	arg0[1] = args0;
+	sprintf(arg0[0],"mysplit");
+	sprintf(arg0[1],"60");
+	myTask0.name = "mytask0";
+	myTask0.task = myspin;
+	myTask0.priority = MED_PRIORITY;
+	myTask0.argc = 2;
+	myTask0.argv = arg0;
+	myTask0.parentHandlers = FALSE; 
+	myTask0.tgidNew = FALSE;
+	tids[0] = createTask(&myTask0);
+	
+	/*insertDeltaClock(10,s,1);
+	int i;
+	// print the list of vrts every 1 second
+	for (i = 0; i < 5; i++) {
+		semWait(s);
+		printvrts(5);
+		printf("\n");
+	}*/
+
+	NewTask myTask1;
+	char* arg1[2];
+	char name1[32];
+	char args1[32];
+	arg1[0] = name1;
+	arg1[1] = args1;
+	sprintf(arg1[0], "mysplit");
+	sprintf(arg1[1], "60");
+	myTask1.name = "mytask1";
+	myTask1.task = myspin;
+	myTask1.priority = HIGH_PRIORITY;
+	myTask1.argc = 2;
+	myTask1.argv = arg1;
+	myTask1.parentHandlers = FALSE; 
+	myTask1.tgidNew = FALSE;
+	tids[1] = createTask(&myTask1);
+	
+	/*insertDeltaClock(10,s,1);
+	// print the list of vrts every 1 second
+	int i;
+	for (i = 0; i < 20; i++) {
+		semWait(s);
+		printvrts(5);
+		printf("\n");
+	}*/
+	
+	NewTask myTask2;
+	char* arg2[2];
+	char name2[32];
+	char args2[32];
+	arg2[0] = name2;
+	arg2[1] = args2;
+	sprintf(arg2[0], "mysplit");
+	sprintf(arg2[1], "60");
+	myTask2.name = "mytask2";
+	myTask2.task = myspin;
+	myTask2.priority = LOW_PRIORITY;
+	myTask2.argc = 2;
+	myTask2.argv = arg2;
+	myTask2.parentHandlers = FALSE; 
+	myTask2.tgidNew = FALSE;
+	tids[2] = createTask(&myTask2);
+	
+	NewTask myTask3;
+	char* arg3[2];
+	char name3[32];
+	char args3[32];
+	arg3[0] = name3;
+	arg3[1] = args3;
+	sprintf(arg3[0], "mysplit");
+	sprintf(arg3[1], "60");
+	myTask3.name = "mytask2";
+	myTask3.task = myspin;
+	myTask3.priority = HIGH_PRIORITY;
+	myTask3.argc = 2;
+	myTask3.argv = arg3;
+	myTask3.parentHandlers = FALSE; 
+	myTask3.tgidNew = FALSE;
+	tids[3] = createTask(&myTask3);
+
+	NewTask myTask4;
+	char* arg4[2];
+	char name4[32];
+	char args4[32];
+	arg4[0] = name4;
+	arg4[1] = args4;
+	sprintf(arg4[0],"mysplit");
+	sprintf(arg4[1],"60");
+	myTask4.name = "mytask4";
+	myTask4.task = myspin;
+	myTask4.priority = MED_PRIORITY;
+	myTask4.argc = 2;
+	myTask4.argv = arg4;
+	myTask4.parentHandlers = FALSE; 
+	myTask4.tgidNew = FALSE;
+	tids[4] = createTask(&myTask4);
+	
+
+
+	insertDeltaClock(10,s,1);
+	// print the list of vrts every 1 second
+	int i;
+	for (i = 0; i < 65; i++) {
+		semWait(s);
+		printlvrt(7); //prints the lowest vrt task (top of queue currently)
+		printvrts(7);
+		printf("\n");
+	}
+	deleteClockEvent(s);
+	deleteSemaphore(s);
+
+
+	return 0;
+
+}

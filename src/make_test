@@ -1,0 +1,3 @@
+#!/bin/bash
+gcc -Wall -g -I ../inc -c priority_queue.c pri_que_test.c
+gcc -Wall -g -I ../inc -o test pri_que_test.o priority_queue.o

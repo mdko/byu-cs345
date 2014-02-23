@@ -1,0 +1,133 @@
+// @DISABLE_SWAPS
+#include <stdio.h>
+#include <setjmp.h>
+#include <assert.h>
+#include <stdlib.h>
+#include "queue_list.h"
+#include "scheduler.h"
+#include "kernel.h"
+
+// Create an entry for every possible task.  We recycle these entries
+// as a task cannot appear in more than one queue at any time
+Node tasks[MAX_TASKS];
+
+Node* getNode(tid_t tid) 
+{
+	Node* nd = &tasks[tid];
+	assert(nd->tid == NO_TASK);	
+	nd->tid = tid;
+	nd->next = NULL;
+	return nd;
+}
+
+void clearNode(Node* node)
+{
+	node->tid = NO_TASK;
+	node->next = NULL;
+	return;
+}
+
+QueueList* makeQueue(unsigned short priority) 
+{
+    QueueList* queue = (QueueList*) malloc(sizeof(QueueList)); 
+    queue->curNode = NULL;
+	queue->lastNode = NULL;
+	queue->nextList = NULL;
+	queue->priority = priority;
+	return queue;
+}
+
+
+int removeNode(QueueList* list, tid_t tid)
+{
+	Node* currentNode = list->curNode;
+	if (currentNode == NULL)
+		return NO_TASK;
+	if (currentNode->tid == tid)
+	{
+		list->curNode = currentNode->next;
+		clearNode(currentNode);
+		return TRUE;
+	}
+	else
+	{
+		while (currentNode->next != NULL)
+		{
+			if (currentNode->next->tid == tid)
+			{
+				Node* nextNode = currentNode->next->next;
+				if (list->lastNode == nextNode)
+					list->lastNode = currentNode;	
+				clearNode(currentNode->next);
+				currentNode->next = nextNode;
+				return TRUE;
+			}
+			currentNode = currentNode->next;
+		}
+		return NO_TASK;
+	}
+	//never gets here
+	return FALSE;
+}
+
+void enqueue(QueueList* list, tid_t tid)
+{
+	if (list->curNode == NULL) //if list is empty, so lastNode is also null
+	{
+		list->lastNode = getNode(tid);
+	   	list->curNode = list->lastNode;	
+	}
+	else	
+	{
+		list->lastNode->next = getNode(tid);
+		list->lastNode = list->lastNode->next;
+	}
+	return;
+}
+
+int dequeue(QueueList* list)
+{
+	if (list->curNode == NULL)
+	{
+		return NO_TASK;
+	}
+	Node* cur = list->curNode;	
+    int tid = list->curNode->tid;
+	list->curNode = list->curNode->next;
+	if (list->curNode == NULL)
+		list->lastNode = NULL;
+	clearNode(cur);	
+    return tid;
+}
+
+//For testing purposes
+void printQueue(QueueList* list)
+{
+	Node* cur = list->curNode;
+	while (cur != NULL)
+	{
+		printf("%i", cur->tid);
+		cur = cur->next;
+	}
+	printf("\n");
+}
+
+void clearList(QueueList *list)
+{
+	return;
+	//list->curNode == NULL;
+}
+
+void clearListNode(QueueList *list)
+{
+	//Node* currentNode = list->curNode;
+	//while (currentNode != NULL)
+	//{
+	//	Node* next = currentNode->next;
+	//	free(currentNode);
+	//	currentNode = next;
+	//}
+	return;
+}
+
+// @ENABLE_SWAPS

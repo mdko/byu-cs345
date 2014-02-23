@@ -1,0 +1,453 @@
+From a870da4a65af9c014e8774a900e9b851e09c6a09 Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Sat, 19 Jan 2013 15:32:51 -0700
+Subject: [PATCH] The exceptional control flow program is in the exc-flow/
+ directory and ran using the instruction in the README file
+ located in that directory. The main() method located in
+ test_mn.c calls a few methods located in jmp_pgm.c that,
+ depending on the order they are called in, make the
+ function work normally (no jmping around) or with errors
+ (making it longjmp to the error handler).
+
+The text file explaining the setjmp and longjmp use in the kernel is located in
+the src/ directory, a file called "jmp_exp.txt."
+
+********************************************************************************
+
+Squashed commit of the following:
+
+commit e6317ac171a7ec58cfb962ada6c7cf377dbae39f
+Author: michael <chmdko@gmail.com>
+Date:   Sat Jan 19 15:31:04 2013 -0700
+
+    queue_list fixed
+
+commit e1daed7a215442d29ec5b45cfa0d230ecc6d80bc
+Author: michael <chmdko@gmail.com>
+Date:   Sat Jan 19 15:26:57 2013 -0700
+
+    the setjmp/longjmp explainations
+
+commit 7f302d4032fa0e4af5d0ebc7a5062aa4dea270fe
+Author: michael <chmdko@gmail.com>
+Date:   Sat Jan 19 13:05:37 2013 -0700
+
+    Changed makefile
+
+commit 5e2c962d13b62fac620212f7dd6451d0822c177f
+Author: michael <chmdko@gmail.com>
+Date:   Sat Jan 19 13:05:16 2013 -0700
+
+    queue_list implementation
+
+commit a1dcf43f5d3989ed2a8453bd932eddd6f2d33cd5
+Author: michael <chmdko@gmail.com>
+Date:   Sat Jan 19 13:03:42 2013 -0700
+
+    Exceptional control files
+
+commit 606c44bebec2cc981b89f5cb6d84db4b657a16a8
+Author: michael <chmdko@gmail.com>
+Date:   Fri Jan 18 16:31:24 2013 -0700
+
+    "Make file wanted to be added too"
+
+commit 440cd0a66a3cc4ce38a9964eb2f529fde6537520
+Author: michael <chmdko@gmail.com>
+Date:   Fri Jan 18 16:30:12 2013 -0700
+
+    Queue List working (hopefully)
+---
+ Makefile           |    6 +--
+ exc-flow/jmp_pgm.c |   51 ++++++++++++++++++++
+ exc-flow/test_mn.c |   17 +++++++
+ src/jmp_exp.txt    |  135 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/queue_list.c   |   93 ++++++++++++++++++++++++++++++++----
+ 5 files changed, 291 insertions(+), 11 deletions(-)
+ create mode 100644 exc-flow/jmp_pgm.c
+ create mode 100644 exc-flow/test_mn.c
+ create mode 100644 src/jmp_exp.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..3723b16 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -94,7 +94,7 @@ OBJS	=			obj/kernel.o							\
+ 					obj-ref/$(ARCH)/delta_clock.o			\
+ 					obj-ref/$(ARCH)/semaphores.o			\
+ 					obj-ref/$(ARCH)/scheduler.o				\
+-					obj-ref/$(ARCH)/queue_list.o			\
++					obj/queue_list.o			\
+ 					obj-ref/$(ARCH)/jurassic_park.o			\
+ 					obj-ref/$(ARCH)/virtual_memory.o		\
+ 					obj-ref/$(ARCH)/fat.o					\
+diff --git a/exc-flow/jmp_pgm.c b/exc-flow/jmp_pgm.c
+new file mode 100644
+index 0000000..0ae6c5b
+--- /dev/null
++++ b/exc-flow/jmp_pgm.c
+@@ -0,0 +1,51 @@
++#include <setjmp.h>
++#include <stdio.h>
++#include "jmp_pgm.h"
++jmp_buf buf;
++
++int array[10];
++int location = -1;
++
++void initialize() 
++{
++	int val = setjmp(buf);
++	if (val == 0)
++		printf("NO ERROR: first time through\n");
++	else if (val == 1)
++		printf("ERROR: returned to main because nothing added to array\n");
++	else
++		printf("ERROR: returned to main because only one thing added to array \n");
++}
++
++void addItem(int i)
++{
++	location++;
++	array[location] = i;
++}
++
++void doStuff()
++{
++	fn1();
++	printf("no error after f1, implying no error after fn2\n");
++}
++
++void fn1()
++{	
++	fn2();
++	printf("no error after fn2\n");
++	array[location] = array[1] + array[2];
++	location++;
++}
++
++void fn2()
++{	
++	if (location == -1) //if there is nothing in the array
++		longjmp(buf, 1);
++	else if (location == 0) //one thing in array
++		longjmp(buf, 2);
++	else
++	{
++		array[location] = array[0] + array[1];
++		location++;
++	}
++}
+diff --git a/exc-flow/test_mn.c b/exc-flow/test_mn.c
+new file mode 100644
+index 0000000..7b65fdd
+--- /dev/null
++++ b/exc-flow/test_mn.c
+@@ -0,0 +1,17 @@
++#include <stdio.h>
++#include "jmp_pgm.h"
++
++int main()
++{
++	initialize();
++	
++	doStuff();
++
++	addItem(3);
++	doStuff(); //arbitrary method returns error b/c only one thing inside
++
++	addItem(2);
++	doStuff(); //arbitrary method returns true because two things inside
++
++	return 0;
++}
+diff --git a/src/jmp_exp.txt b/src/jmp_exp.txt
+new file mode 100644
+index 0000000..e1b929c
+--- /dev/null
++++ b/src/jmp_exp.txt
+@@ -0,0 +1,135 @@
++setjmp() occurences:
++0. kernel.c, line 127: int resetCode = setjmp(reset_context);
++	This is the return site for any subsequent longjmp that results in the
++	system reseting. It saves the context of the program (register context,
++	SP, and PC) so the program can go back to main for a restart.
++
++1. kernel.c, line 317: kernelReturnValue = setjmp(k_context);
++	This sets the return site for any longjmps from within task swaps while
++	the current task is running. If there's any error, it will return to this
++	point, restore the context, and the return value will be able to
++	determine what do based on this return value.
++
++2. kernel.c, line 770: result = setjmp(k_context);
++	Sets the return site for a longjmp that would need the current context of
++	the kernel when it hasn't started. This is would be returned to from
++	within initTask() if the kernel hasn't started and it's the first time
++	through the curTask, where it would then be rescheduled and us returned to
++	this context in the kernel so that the result would be non-zero.
++
++3. kernel.c, line 804: if(setjmp(tcb[curTask].context) == 0); {
++	Sets the return point for any errors that the reschedule(int task) method
++	in scheduler.c might need to longjmp to to restore the context of the task
++	in initTask() and pursue a different course.
++
++4. kernel.c, line 814: if(setjmp(tcb[curTask].kill_context)) {
++	The place to return to when the longjmp set later returns with the task
++	having a kill_context (in signals.c), the kill signal having been sent.
++
++5. trap.c, line 32: context_value = setjmp(*((jmp_buf*)formals->params[0]));
++	The context value saved here saves what the trap needs to go into the
++	kernel and perform the function (ie the trap_struct on the stack), so the
++	kernel can return to this point if necessary. It seems that the 0th entry
++	in the array of params in the formals trap_struct is what is used to
++	contain the context_value of any longjmps back to it.
++
++longjmp() occurences:
++0. kernel.c, line 194: longjmp(reset_context, POWER_DOWN_QUIT);
++	This will jump back to the context saved in line 127 with a reset code < 0
++	so that the switch statement following line 127 will be able to shut down
++	the os appropriately, according to the reset_context that is set to
++	POWER_DOWN_QUIT.
++
++1. kernel.c, line 382: longjmp(tcb[curTask].context,TRAP_NORMAL);
++	This jumps to the context of the current task after it is discovered that
++	is running and therefore shouldn't be in superMode after returning from a
++	trap.
++
++2. kernel.c, line 486: longjmp(*((jmp_buf*)system_call_params->params[0]),TRAP_NORMAL);
++	If the system is already handling a signal, it will restore the context of
++	task and tell its system_call_params that they're TRAP_NORMAL, and then
++	the program will resume execution to whoever called
++	_setTrapParamsContext(...)
++
++3. kernel.c, line 409: longjmp(k_context,KERNEL_CHECK_SIGNALS);
++	Similar to the above, except that the system wasn't already handling a
++	signal, and so we jump back to where the setjmp occured, saying that we
++	need to check for signals with KERNEL_CHECK_SIGNALS before we do the
++	system call.
++
++4. kernel.c, line 457: longjmp(reset_context, POWER_DOWN_ERROR);
++	Returns to the set jump that was saved by reset_context, which is set on
++	line 127 in main, so that the kernel can longjmp immediately to shut down
++	the os because an unknown task and state was encountered.
++
++5. kernel.c, line 491: longjmp(k_context, KERNEL_RETURN_FROM_SWAP);
++	After changing the task's state to S_READY and rescheduling it, we jump
++	back to kernel mode, returning in line 317 of the dispatcher where the
++	context of the kernel was saved before task SWAP's.
++
++6. kernel.c, line 809: longjmp(k_context,1);
++	If a task has been started but the kernel hasn't (in the first few lines
++	of initTask()), you reschedule it and return to _createTask, line 753,
++	where the 1 assigned to that result is used in the subsequent if statement
++	on whether or not to init the next task.
++
++7. kernel.c, line 845: longjmp(k_context, KERNEL_RETURN_FROM_EXIT);
++	This is used to signify to the kernel that we've returned from
++	initializing a task, returning to the point where k_context (context of
++	kernel stack) was set, line 317 in the S_RUNNING case, so that we will
++	enter superMode and return a 0 to the dispatcher() method that is being
++	called continually in the while(1) loop in main, so that another interrupt
++	can be polled and task scheduled and executed.
++
++8. shell.c, line 328: longjmp(reset_context, POWER_DOWN_QUIT);
++	The builtin_cmd_list[] in commands.c signals what method to call when a
++	shell has typed in "quit", which is, according to this longjmp, the plac
++	where reset_context was saved with a setjmp in kernel.c, line 127, so that
++	the reset code could be decoded to quit the os.
++
++9. shell.c, line 401: longjmp(reset_context, POWER_DOWN_RESTART);
++	Like 8., this is used when the command reset has been entered in the shell
++	and we need to signify to the kernel that it needs to return to the
++	original context set by setjmp in kernel.c in main() before it started to restart.
++
++10. shell.c, 728: longjmp(reset_context, POWER_DOWN_QUIT);
++	Like 8., this is used when there has been a kernel error, so we report it
++	and return to the setjmp location in kernel.c and signal that we need to
++	quit the os.
++
++11. signals.c, line 134: longjmp(tcb[curTask].context, signo);
++	When receiving signals, we handle them by assigning the system call params
++	to the current tasks' params and returning to where that task's context
++	was set, so it knows that the handler is ready to be used because the
++	system call params are now set to the point to its params, line 804 of
++	kernel.c.
++
++12. signals.c, line 194: longjmp(reset_context, POWER_DOWN_QUIT);
++	If the signal is sent to kill a task with taskId 0, we longjmp to the
++	setjmp that was used to the save the context in reset_context, which is in
++	kernel.c in main, so that the system can be told to power down.
++
++13. signals.c, line 528: longjmp(tcb[curTask].kill_context, TRUE);
++	This returns the setjmp that is remembered with tcb[curTask].kill_context,
++	with TRUE returned, to line 814 in kernel.c, so that the if is entered,
++	the else skipped, and the task put back into the ready queue so we can
++	return to kernel mode.	
++
++14. trap.c, line 40: longjmp(k_context, KERNEL_CHECK_SIGNALS);
++	After the signal_handler is called to receive the context of the trap
++	structure's 0th param, we jump back into the kernel so we can continue to
++	check/handle signals in line 324 of kernels.c in superMode. The signal
++	handler is called right before this longjmp so we deal with it before
++	returning to the user's program.
++
++15. trap.c, line 46: longjmp(k_context, call_num);
++	Longjmps to the location similar to 14. in kernels.c, this time returning
++	the system call value so that the conditional section starting at line 389 can
++	be handled, so that system call will be ran.
++
++16. virtual_memory.c, line 219: longjmp( reset_context, POWER_DOWN_ERROR);
++	If there isn't enough virtual memory space as decided by the first
++	condition on line 211, this error is immediately longjmp-ed up to the
++	main(), where the setjmp there is remembered by the reset_context, which
++	would here return the value signifying we need to power down due to an
++	error (line 144 of kernel.c).
+diff --git a/src/queue_list.c b/src/queue_list.c
+index fc00da7..5434ebd 100644
+--- a/src/queue_list.c
++++ b/src/queue_list.c
+@@ -11,45 +11,122 @@
+ // as a task cannot appear in more than one queue at any time
+ Node tasks[MAX_TASKS];
+ 
+-Node* getNode(tid_t tid) {
++Node* getNode(tid_t tid) 
++{
++	Node* nd = &tasks[tid];
++	assert(nd->tid == NO_TASK);	
++	nd->tid = tid;
++	nd->next = NULL;
++	return nd;
+ }
+ 
+ void clearNode(Node* node)
+ {
++	node->tid = NO_TASK;
++	node->next = NULL;
+ 	return;
+ }
+ 
+-QueueList* makeQueue(unsigned short priority) {
+-    QueueList* queue = NULL; 
+-    return queue;
++QueueList* makeQueue(unsigned short priority) 
++{
++    QueueList* queue = (QueueList*) malloc(sizeof(QueueList)); 
++    queue->curNode = NULL;
++	queue->lastNode = NULL;
++	queue->nextList = NULL;
++	queue->priority = priority;
++	return queue;
+ }
+ 
+ 
+ int removeNode(QueueList* list, tid_t tid)
+ {
+-	return NO_TASK;
++	Node* currentNode = list->curNode;
++	if (currentNode == NULL)
++		return NO_TASK;
++	if (currentNode->tid == tid)
++	{
++		list->curNode = currentNode->next;
++		clearNode(currentNode);
++		return TRUE;
++	}
++	else
++	{
++		while (currentNode->next != NULL)
++		{
++			if (currentNode->next->tid == tid)
++			{
++				Node* nextNode = currentNode->next->next;
++				if (list->lastNode == nextNode)
++					list->lastNode = currentNode;	
++				clearNode(currentNode->next);
++				currentNode->next = nextNode;
++				return TRUE;
++			}
++			currentNode = currentNode->next;
++		}
++		return NO_TASK;
++	}
++	//never gets here
++	return FALSE;
+ }
+ 
+ void enqueue(QueueList* list, tid_t tid)
+ {
+-    return;
++	if (list->curNode == NULL) //if list is empty, so lastNode is also null
++	{
++		list->lastNode = getNode(tid);
++	   	list->curNode = list->lastNode;	
++	}
++	else	
++	{
++		list->lastNode->next = getNode(tid);
++		list->lastNode = list->lastNode->next;
++	}
++	return;
+ }
+ 
+ int dequeue(QueueList* list)
+ {
+-    int tid;
+-
++	if (list->curNode == NULL)
++	{
++		return NO_TASK;
++	}
++	Node* cur = list->curNode;	
++    int tid = list->curNode->tid;
++	list->curNode = list->curNode->next;
++	if (list->curNode == NULL)
++		list->lastNode = NULL;
++	clearNode(cur);	
+     return tid;
+ }
+ 
++//For testing purposes
++void printQueue(QueueList* list)
++{
++	Node* cur = list->curNode;
++	while (cur != NULL)
++	{
++		printf("%i", cur->tid);
++		cur = cur->next;
++	}
++	printf("\n");
++}
+ 
+ void clearList(QueueList *list)
+ {
+ 	return;
++	//list->curNode == NULL;
+ }
+ 
+ void clearListNode(QueueList *list)
+ {
++	//Node* currentNode = list->curNode;
++	//while (currentNode != NULL)
++	//{
++	//	Node* next = currentNode->next;
++	//	free(currentNode);
++	//	currentNode = next;
++	//}
+ 	return;
+ }
+ 
+-- 
+1.7.10.4
+

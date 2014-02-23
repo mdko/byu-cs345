@@ -1,0 +1,347 @@
+From fdcceb3e84104e54ed3d289ae5cc2f3869f03485 Mon Sep 17 00:00:00 2001
+From: michael <chmdko@gmail.com>
+Date: Sat, 30 Mar 2013 23:44:54 -0600
+Subject: [PATCH] FAT-I submission for Michael Christensen. The
+ file-system-I.txt file is the main kernel/ directory.
+
+---
+ Makefile          |   8 +--
+ file-system-I.txt |  30 +++++++++
+ inc/fat.h         |   4 +-
+ src/fat.c         | 179 +++++++++++++++++++++++++++++++++++++++++++++++++++---
+ 4 files changed, 208 insertions(+), 13 deletions(-)
+ create mode 100644 file-system-I.txt
+
+diff --git a/Makefile b/Makefile
+index 139349c..4286cf5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -38,8 +38,8 @@ INCLUDE = 	-Iinc
+ ## Specific defines for the build process
+ ## directives
+ #ARCH = GCCW32
+-ARCH = GCCOSX64
+-#ARCH = GCC64
++#ARCH = GCCOSX64
++ARCH = GCC64
+ 
+ DEFINE = -D$(ARCH) -DKDEBUG=FALSE
+ 
+@@ -97,7 +97,7 @@ OBJS	=			obj/kernel.o							\
+ 					obj-ref/$(ARCH)/queue_list.o			\
+ 					obj-ref/$(ARCH)/jurassic_park.o			\
+ 					obj-ref/$(ARCH)/virtual_memory.o		\
+-					obj-ref/$(ARCH)/fat.o					\
++					obj/fat.o								\
+ 
+ 
+ SWAPOBJS	=		obj/kernel-swap.o						\
+@@ -121,7 +121,7 @@ SWAPOBJS	=		obj/kernel-swap.o						\
+ 					obj-ref/$(ARCH)/queue_list-swap.o		\
+ 					obj-ref/$(ARCH)/jurassic_park-swap.o	\
+ 					obj-ref/$(ARCH)/virtual_memory-swap.o	\
+-					obj-ref/$(ARCH)/fat-swap.o				\
++					obj/fat-swap.o							\
+ 
+ 
+ ## -------------------------------------------------------------------
+diff --git a/file-system-I.txt b/file-system-I.txt
+new file mode 100644
+index 0000000..e407950
+--- /dev/null
++++ b/file-system-I.txt
+@@ -0,0 +1,30 @@
++My testing strategy and framework involved first, continually using "type
++<file name>" on make.txt and the other files in the directories. Via this
++first method, I was able to discover many issues with me not accessing and
++iterating over the buffers correctly during read, not being able to properly
++parse/concatenate a file in close so I could find its file descriptor and
++update the directory accordingly, and other errors. During this process, I
++would use the reference kernel implementation to compare mine against what
++should be happening with each command.
++
++By opening another file after I believed my implementation to be complete, I
++was able to realize that I hadn't been clearing the entry-to-be-closed's
++attributes from its spot open file table once they were being closed. I then
++proceeded to navigate the directories and open h2o.c, byu/anxiety.txt,
++"byu/invari~1.txt" (this allowed me to use the completion part of the code
++that was given but also allowed me to ensure that file names were being parsed
++correctly in my close section, since this file name was longer). I then
++proceeded to also open byu\logic.txt, puzzles.txt, top20.txt, and zebra.txt.
++
++I also tested the error handling abilities the best I could. I tried to "type"
++a file that didn't exist, and the same error in my implementation and the
++reference implementation would occur (file not defined).
++
++Finally, I used the "testfat 1" command since write and delete are for part 2,
++and that passes.
++
++I noticed a discrepancy, which wasn't an error, but just differences
++between the implementations. My implementation of open finds the last file
++descriptor slot that is available in the open file table, while the reference
++kernel gets the first. Since I was basing read off of the powerpoint given in
++class, I see no problem with this, and it works the same.
+diff --git a/inc/fat.h b/inc/fat.h
+index 9d27878..50900fe 100644
+--- a/inc/fat.h
++++ b/inc/fat.h
+@@ -194,7 +194,7 @@ int checkForDirectoryEntries(int);
+ 
+ #define E_FILE_ALREADY_DEFINED  		-60
+ #define E_FILE_NOT_DEFINED      		-61
+-#define E_FILE_ARLEADY_OPEN     		-62
++#define E_FILE_ALREADY_OPEN     		-62
+ #define E_FILE_NOT_OPEN         		-63
+ #define E_FILE_DIRECTORY_FULL   		-64
+ #define E_FILE_SPACE_FULL       		-65
+@@ -225,7 +225,7 @@ int checkForDirectoryEntries(int);
+ 
+ #define E_FILE_ALREADY_DEFINED_MSG       "File Already Defined"
+ #define E_FILE_NOT_DEFINED_MSG           "File Not Defined"
+-#define E_FILE_ARLEADY_OPEN_MSG          "File Already Open"
++#define E_FILE_ALREADY_OPEN_MSG          "File Already Open"
+ #define E_FILE_NOT_OPEN_MSG              "File Not Open"
+ #define E_FILE_DIRECTORY_FULL_MSG        "File Directory Full"
+ #define E_FILE_SPACE_FULL_MSG            "File Space Full"
+diff --git a/src/fat.c b/src/fat.c
+index 2dcaaa6..302372c 100644
+--- a/src/fat.c
++++ b/src/fat.c
+@@ -46,7 +46,7 @@ FMSERROR FMSErrors[NUM_ERRORS]   = {
+ 
+                               {E_FILE_ALREADY_DEFINED, E_FILE_ALREADY_DEFINED_MSG},  // File Already Defined
+                               {E_FILE_NOT_DEFINED, E_FILE_NOT_DEFINED_MSG},  // File Not Defined
+-                              {E_FILE_ARLEADY_OPEN, E_FILE_ARLEADY_OPEN_MSG},  // File Already Open
++                              {E_FILE_ALREADY_OPEN, E_FILE_ALREADY_OPEN_MSG},  // File Already Open
+                               {E_FILE_NOT_OPEN, E_FILE_NOT_OPEN_MSG},  // File Not Open
+                               {E_FILE_DIRECTORY_FULL, E_FILE_DIRECTORY_FULL_MSG},  // File Directory Full
+                               {E_FILE_SPACE_FULL, E_FILE_SPACE_FULL_MSG},  // File Space Full
+@@ -753,6 +753,53 @@ int getEndCluster(int dir, int dirNum)
+  */
+ int fmsCloseFile(int fileDescriptor)
+ {
++	if (!diskMounted)
++		return E_DISK_NOT_MOUNTED;
++	if (fileDescriptor < 0)
++		return E_INVALID_FILE_DESCRIPTOR;
++		
++	FDEntry* fdEntry = &OFTable[fileDescriptor];
++
++	if (fdEntry->name[0] == 0) 	
++		return E_FILE_NOT_OPEN;
++
++	unsigned char name[8];
++	unsigned char ext[3];
++	char per[] = ".";
++	getFDEntryStrings(fdEntry, name, ext);
++	char fileName[12];
++	memcpy(fileName, name, strlen(name));
++	memcpy(fileName + strlen(name), per, 1);
++	memcpy(fileName + strlen(name) + 1, ext, strlen(ext));
++	fileName[strlen(name) + strlen(ext) + 1] = 0;
++	//printf("%s",fileName);
++	
++	DirEntry dirEntry;
++	int error;
++	if (error = fmsGetDirEntry(fileName, &dirEntry))
++		return error;
++
++	if (fdEntry->flags == FILE_ALTERED) {
++		setDirTimeDate(&dirEntry);
++		dirEntry.fileSize = fdEntry->fileSize;
++	}
++
++	// Flush buffer
++	fmsWriteSector(fdEntry->buffer, C_2_S(fdEntry->currentCluster));
++
++	memset(fdEntry->name, 0, sizeof(fdEntry->name));
++	memset(fdEntry->extension, 0, sizeof(fdEntry->extension));
++	fdEntry->attributes = -1;
++	fdEntry->directoryCluster = -1;
++	fdEntry->startCluster = -1;
++	fdEntry->currentCluster = -1;
++	fdEntry->fileSize = -1;
++	fdEntry->pid = -1;
++	fdEntry->mode = -1;
++	fdEntry->flags = -1;
++	fdEntry->fileIndex = -1;
++	memset(fdEntry->buffer, -2, BUFSIZE);
++
+ 	return 0; // return success
+ }
+ 
+@@ -795,7 +842,8 @@ int fmsDeleteFile(char* fileName)
+  * fmsOpenFile - opens a file with specified access mode
+  * @fileName: the name of the file to open
+  * @rwMode: the mode of the open file
+- * @return: If successful, return file descriptor, error number otherwise
++ * @return: If successful, return file descriptor (index into open file table),
++ * 			 error number otherwise
+  *
+  * This function opens the file fileName for access as specified by rwMode.
+  * It is an error to try to open a file that does not exist.
+@@ -817,7 +865,60 @@ int fmsDeleteFile(char* fileName)
+  */
+ int fmsOpenFile(char* fileName, int rwMode)
+ {
+-	return 0;
++	int error, i, j, fd = 0;
++	DirEntry dirEntry;
++	FDEntry* fdEntry;	
++	TCB* tcb = getTCB();								// For use by CDIR macro
++	int curTask = gettid();								// For use by CDIR macro
++
++	if (error = fmsGetDirEntry(fileName, &dirEntry)) 	// Returned dir entry stored in dirEntry
++		return error;
++	if (dirEntry.name[0] == 0)
++		return E_INVALID_FILE_NAME;
++	if (dirEntry.attributes == READ_ONLY && rwMode) 
++		return E_READ_ONLY_FILE;
++	
++	for (i = 0, fd = -1; i < NFILES; i++) {				// Look through entire open file table
++		fdEntry = &OFTable[i];
++		
++		if (fdEntry->name[0] == 0)						// Open slot (not too many files
++			fd = i;										// already open), so save that location
++		
++														// But we still need to iterate over
++		// 12 because name and extension are contig.	// rest of entries in OFTable to
++		for (j = 0; j < 12; j++) {						// compare the name of file in the file
++			if (fdEntry->name[j] != dirEntry.name[j])	// descriptor we're checking right now
++				break;	//inner for, check next entry	// to name of file in directory entry,
++			if (j == 12)								// to make sure that the
++				return E_FILE_ALREADY_OPEN;				// file isn't already open
++		}
++	}
++	if (fd == -1)										// fd never got assigned to an open slot 
++		return E_TOO_MANY_FILES_OPEN;					// so, too many files open
++
++	memcpy(fdEntry->name, dirEntry.name, 8); 			// Create new file descriptor entry
++	memcpy(fdEntry->extension, dirEntry.extension, 3);	// TODO check about null-termination
++	fdEntry->attributes = dirEntry.attributes;
++	fdEntry->directoryCluster = CDIR;
++	fdEntry->startCluster = dirEntry.startCluster;
++	fdEntry->currentCluster = !rwMode ? fdEntry->startCluster : 0;	// At least for part 1
++	fdEntry->fileSize = (rwMode == 1) ? 0 : dirEntry.fileSize; // If writing to file, 0 size
++	fdEntry->pid = curTask;								// curTask
++	fdEntry->mode = rwMode;
++	fdEntry->flags = 0;
++	fdEntry->fileIndex = (rwMode != 2) ? 0 : dirEntry.fileSize; // If appending file, go to end
++	memset(fdEntry->buffer, -2, BUFSIZE);
++	
++	if (rwMode == 2) {									// Appending, fill buff with last cluster
++		fdEntry->currentCluster = fdEntry->startCluster;
++		unsigned short nextCluster = 0;
++		while ((nextCluster = getFatEntry(fdEntry->currentCluster, FAT1)) != FAT_EOC)
++			fdEntry->currentCluster = nextCluster;
++		if ((error = fmsReadSector(fdEntry->buffer, C_2_S(fdEntry->currentCluster))))
++			return error;	
++	}
++
++	return fd;
+ }
+ 
+ /**
+@@ -834,7 +935,41 @@ int fmsOpenFile(char* fileName, int rwMode)
+  */
+ int fmsReadFile(int fileDescriptor, char* buffer, int nBytes)
+ {
+-	return 0;
++	if (!diskMounted)
++		return E_DISK_NOT_MOUNTED;
++	if (fileDescriptor < 0)
++		return E_INVALID_FILE_DESCRIPTOR;
++		
++	FDEntry* fdEntry = &OFTable[fileDescriptor];
++
++	if (fdEntry->name[0] == 0)
++		return E_FILE_NOT_OPEN;
++		
++	unsigned short nextCluster = 0;
++	int error;
++
++	// If the buffer for this fd is empty (either we're entering
++	// a new sector and just cleared the buffer in a previous
++	// iteration of this loop, or it's never been filled), fill it
++	if (fdEntry->buffer[0] == -2) {
++		if (error = fmsReadSector(fdEntry->buffer, C_2_S(fdEntry->currentCluster)))
++			return error;
++		// So we're at the next cluster next time for next time
++		nextCluster = getFatEntry(fdEntry->currentCluster, FAT1);
++		fdEntry->currentCluster = nextCluster;
++	}
++
++	memcpy(buffer, fdEntry->buffer + (fdEntry->fileIndex % BYTES_PER_SECTOR), nBytes);
++	fdEntry->fileIndex = fdEntry->fileIndex + nBytes;
++
++	if (fdEntry->fileIndex % BYTES_PER_SECTOR == 0) {
++		memset(fdEntry->buffer, -2, BUFSIZE);
++	}
++
++	if (fdEntry->fileIndex >= fdEntry->fileSize)
++		return E_END_OF_FILE;
++		
++	return nBytes;	
+ }
+ 
+ /**
+@@ -851,7 +986,37 @@ int fmsReadFile(int fileDescriptor, char* buffer, int nBytes)
+  */
+ int fmsSeekFile(int fileDescriptor, int index)
+ {
+-	return 0;
++	int error;
++	
++	if (!diskMounted)
++		return E_DISK_NOT_MOUNTED;
++	if (fileDescriptor < 0)
++		return E_INVALID_FILE_DESCRIPTOR;
++		
++	FDEntry* fdEntry = &OFTable[fileDescriptor];
++
++	// This fdEntry is still free/hasn't been allocated
++	if (fdEntry->name[0] == 0) 	
++		return E_FILE_NOT_OPEN;			// Could also be E_FILE_NOT_DEFINED...?	
++	if (index >= fdEntry->fileSize)
++		return E_FILE_SEEK_ERROR;
++		
++	fdEntry->fileIndex = index;
++
++	// Get to the right cluster, put part of cluster up to index into fd's buffer
++	char buff[BUFSIZE];
++	int i;
++	fdEntry->currentCluster = fdEntry->startCluster;
++	for (i = 0; i < (index / BYTES_PER_SECTOR); i++) {
++		unsigned int nextCluster = getFatEntry(fdEntry->currentCluster, FAT1);
++		fdEntry->currentCluster = nextCluster;
++	}
++	if ((error = fmsReadSector(buff, C_2_S(fdEntry->currentCluster))))
++		return error;
++
++	memcpy(fdEntry->buffer, buff, (index % BYTES_PER_SECTOR));
++		
++	return index;
+ }
+ 
+ /**
+@@ -994,7 +1159,7 @@ int fmsMount(char* fileName, void* ramDisk)
+ // This function loads a RAM disk image from a file.
+ //	The parameter fileName is the file path name of the disk image.
+ //	The parameter ramDisk is a pointer to a character array whose
+-//    size is equal to a 1.4 mb floppy disk (2849 ´ 512 bytes).
++//    size is equal to a 1.4 mb floppy disk (2849 Â´ 512 bytes).
+ //	Return 0 for success, otherwise, return the error number
+ {
+    FILE* fp;
+@@ -1024,7 +1189,7 @@ int fmsUnMount(char* fileName, void* ramDisk)
+ // This function unloads your Project 5 RAM disk image to file computer file.
+ // The parameter fileName is the file path name of the disk image.
+ // The pointer parameter ramDisk points to a character array whose size is equal to a 1.4
+-// mb floppy disk (2849 ´ 512 bytes).
++// mb floppy disk (2849 Â´ 512 bytes).
+ // Return 0 for success; otherwise, return the error number.
+ {
+ 	diskMounted = 0;							/* unmount disk */
+-- 
+1.8.1.2
+
